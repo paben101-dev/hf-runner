@@ -24,6 +24,8 @@ export interface Settings {
   /** 0 = 自動 */
   threads: number
   serverPort: number
+  /** Presentation only; raw chat messages remain unchanged. */
+  renderMarkdown: boolean
   systemPrompt: string
   temperature: number
   maxTokens: number

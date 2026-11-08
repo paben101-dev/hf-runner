@@ -102,6 +102,14 @@ llama.cpp と stable-diffusion.cpp は GPU の種類を選べます。
 
 保存先は既存のユーザーデータ内の `conversations/` です。Windows インストーラー版は `%APPDATA%\HF Runner\conversations\`、ポータブル zip 版は `<folder>\data\conversations\` に保存します。会話ごとの JSON を安全に置き換え、画像は重複を避けて別ファイルに保存します。データはローカルのみで暗号化・同期されないため、保存先を保護してください。送信時は起動中のローカル推論サーバーにのみメッセージを渡します。生成中に強制終了すると未完了の応答は失われる場合がありますが、保存済みメッセージは残ります。壊れたレコードはファイルを削除せず無視します。入力中の下書きや会話ごとの生成設定は保存しません。
 
+### チャットの Markdown 表示
+
+チャットは標準で Markdown を表示します。見出し、太字・斜体・取り消し線、入れ子のリスト、引用、インラインコード、コードブロック、GFM の表、リンク、水平線に対応します。段落と改行は標準の Markdown に従います（空行で段落、行末の半角スペース 2 つで明示的な改行）。生成中の応答や閉じていないコードブロックも順次表示します。
+
+コードブロックは字下げを保持し、横スクロール、指定された言語名、「コピー」ボタンに対応します。構文の色分けはありません。「設定 → チャット」の「チャットで Markdown を表示」をオフにすると、元のテキストをそのまま表示します。設定は保存され、すぐに反映されます。表示のみを変え、メッセージや推論リクエストの元の文字列は変更しません。
+
+HTML は無効です。Markdown の画像は説明文として表示し、外部・ローカルの画像を読み込みません（従来の添付画像は利用できます）。明示的な HTTP/HTTPS リンクのみ外部ブラウザーで開きます。ローカルファイル、アプリ独自の URL、相対リンクなどは無効です。数式表示、埋め込み HTML、構文の色分けには対応しません。
+
 ### 4. 画像生成
 
 stable-diffusion.cpp を入れて、検索で「画像生成」にチェックを入れて探します(例: `stable-diffusion-v1-5`、`FLUX.1-schnell`)。ダウンロード後、「画像生成」ページでモデルを起動し、プロンプトを入れて「生成」を押します。
@@ -206,6 +214,7 @@ print(client.chat.completions.create(model="local", messages=[{"role": "user", "
 | [Electron](https://www.electronjs.org/) / Chromium | MIT / 各種(`LICENSES.chromium.html`) |
 | [React](https://react.dev/)(react, react-dom, scheduler) | MIT |
 | [extract-zip](https://github.com/max-mapper/extract-zip) とその依存(yauzl, debug など) | BSD-2-Clause / MIT / ISC |
+| [react-markdown](https://github.com/remarkjs/react-markdown), [remark-gfm](https://github.com/remarkjs/remark-gfm) | MIT |
 
 次のソフトウェアは利用者の PC が実行時に公式の配布元から取得します(このアプリには含まれません)。
 

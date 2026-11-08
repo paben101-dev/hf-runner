@@ -1,4 +1,9 @@
 // @vitest-environment happy-dom
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { randomUUID } from 'node:crypto'
+import { ConversationStore } from '../src/main/conversations'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -11,7 +16,7 @@ const mock = vi.hoisted(() => ({
   api: { conversations: { list: vi.fn(), load: vi.fn(), save: vi.fn(), rename: vi.fn(), delete: vi.fn(), menu: vi.fn() } },
 }))
 vi.mock('../src/renderer/src/App', () => ({ useApp: () => mock.app }))
-vi.mock('../src/renderer/src/api', () => ({ api: mock.api }))
+vi.mock('../src/renderer/src/api', () => ({ api: mock.api, openExternal: vi.fn() }))
 const stored = new Map<string, Conversation>()
 const makeChat = (id: string, content: string): Conversation => ({ id, title: content, createdAt: 1, updatedAt: 2, modelId: 'model-a', modelName: 'Model A', messages: [{ role: 'user', content }] })
 let root: Root
@@ -112,6 +117,44 @@ describe('chat history interactions', () => {
     await submit('question')
     expect(fetch).toHaveBeenCalledTimes(1)
     expect([...stored.values()][0].messages).toHaveLength(2)
+  })
+  it('renders restarted history with Markdown, toggles presentation only, and sends raw text with attachments', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hfr-integrated-'))
+    try {
+      const c = makeChat(randomUUID(), '# raw user')
+      const raw = '## Answer\n\n**bold**\n\n```js\n  const x = 1\n```'
+      const image = 'data:image/png;base64,aGVsbG8='
+      c.messages[0].images = [image]
+      c.messages.push({ role: 'assistant', content: raw, reasoning: 'reasoning **stays raw**' })
+      new ConversationStore(dir).save(c)
+      // Each load creates a fresh store, exercising the persisted representation rather than renderer memory.
+      mock.api.conversations.list.mockImplementation(async () => new ConversationStore(dir).list())
+      mock.api.conversations.load.mockImplementation(async (id) => new ConversationStore(dir).load(id))
+      mock.api.conversations.save.mockImplementation(async (record) => new ConversationStore(dir).save(record))
+      mock.app.settings = { renderMarkdown: true }
+      mock.app.server.engine = 'llamacpp'
+      await mount(); await click('# raw userModel A')
+      expect(container.querySelector('.msg.assistant h2')!.textContent).toBe('Answer')
+      expect(container.querySelector('.msg.assistant strong')!.textContent).toBe('bold')
+      expect(container.querySelector('.msg-images img')!.getAttribute('src')).toBe(image)
+      expect(container.querySelector('.reasoning .pre')!.textContent).toBe('reasoning **stays raw**')
+      const file = path.join(dir, 'conversations', c.id, 'conversation.json')
+      const before = fs.readFileSync(file, 'utf8')
+      mock.app.settings = { renderMarkdown: false }
+      await mount()
+      expect(container.querySelector('.msg.assistant h2')).toBeNull()
+      expect(container.querySelector('.msg.assistant .msg-body')!.textContent).toBe(raw)
+      expect(fs.readFileSync(file, 'utf8')).toBe(before)
+      mock.app.settings = { renderMarkdown: true }
+      mock.app.server.engine = 'transformers'
+      await mount()
+      expect(container.querySelector('.msg.assistant h2')!.textContent).toBe('Answer')
+      await submit('follow up')
+      const request = JSON.parse(String(vi.mocked(fetch).mock.calls[0][1]!.body))
+      expect(request.messages[0].content).toEqual([{ type: 'text', text: '# raw user' }, { type: 'image_url', image_url: { url: image } }])
+      expect(request.messages[1].content).toBe(raw)
+      expect(new ConversationStore(dir).load(c.id)!.messages[1].content).toBe(raw)
+    } finally { fs.rmSync(dir, { recursive: true, force: true }) }
   })
   it('keeps switching locked while streaming and saves stopped text and reasoning to the original chat', async () => {
     await mount()

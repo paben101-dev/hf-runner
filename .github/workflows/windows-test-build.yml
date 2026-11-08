@@ -6,6 +6,8 @@ on:
   push:
     branches:
       - feat/conversation-history
+      - feat/markdown-rendering
+      - dev/integrated
 
 permissions:
   contents: read
