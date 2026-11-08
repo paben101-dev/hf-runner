@@ -92,6 +92,14 @@ Click "▶ Launch" in the Library to load the model and switch to Chat. A progre
 - When you're done, click "⏏ Unload" to free the memory
 - Each engine's launch command can be edited under "Launch command" in Settings (e.g. add `-ctk q8_0 -ctv q8_0` to llama.cpp, or change `-c {ctx}` to `-c 8192`). Placeholders such as `{model}` and `{port}` are replaced with the model path, port, etc. on each launch. "Restore default" reverts it at any time
 
+### Local conversation history
+
+Chat's collapsible **History** sidebar lists saved conversations with the most recently updated first. **New Chat** starts an independent conversation; its title comes from the first message. Select a conversation to reopen it, or use **Rename** and **Delete** above the chat. Deletion asks for confirmation and removes the conversation and its attachments. **Clear chat** starts a new chat without deleting the previous one.
+
+User messages and completed, stopped, or failed responses save automatically. Stop a running response before switching conversations, renaming, or deleting. History preserves image attachments and assistant reasoning. Reopening a conversation does not start or download its model: launch the same model from the Library to continue, or start a new chat for another model.
+
+History stays local under `conversations/` in the app's existing user-data directory: `%APPDATA%\HF Runner\conversations\` for the Windows installer, or `<folder>\data\conversations\` for the portable zip. Each conversation has an atomic JSON record and separate, deduplicated image files. History is not encrypted or synchronized; protect your local data directory. Messages are sent only to the running local inference server when you press Send. Abrupt termination during generation can lose the unfinished response; previously saved messages remain. Corrupt records are ignored without deleting the files. Unsaved input drafts and chat parameter settings are not stored per conversation.
+
 ### 4. Image generation
 
 Install stable-diffusion.cpp, then search with "Image generation" checked (e.g. `stable-diffusion-v1-5`, `FLUX.1-schnell`). After downloading, launch the model on the "Image generation" page, enter a prompt and click "Generate".

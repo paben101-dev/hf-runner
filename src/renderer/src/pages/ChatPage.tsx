@@ -5,23 +5,8 @@ import { limitNotice, THINKING_MODES, thinkingParams, type ThinkingMode } from '
 import { MAX_MAX_TOKENS, MAX_TOKEN_STOPS, MIN_MAX_TOKENS, nearestStopIndex, parseMaxTokens } from '@shared/tokens'
 import { useApp } from '../App'
 import { LoadProgressView } from '../components/LoadProgress'
-
-interface Message {
-  role: 'user' | 'assistant'
-  content: string
-  /** 添付画像 (data URL) */
-  images?: string[]
-  reasoning?: string
-  stats?: string
-  /** 生成中で、まだ本文が届いていない (応答待ち or 思考中) */
-  thinking?: boolean
-  /** 思考 (reasoning_content) が始まった時刻 (Date.now) */
-  reasoningStartedAt?: number
-  /** 思考にかかった時間。本文が始まった、または生成が終わった時点で確定 */
-  reasoningMs?: number
-  /** 上限に達して止まったときの説明 (回答が出なかった・途中で終わった) */
-  notice?: string
-}
+import { api } from '../api'
+import { conversationTitle, canContinueConversation, type Conversation, type ChatMessage as Message } from '@shared/conversations'
 
 interface StreamChunk {
   error?: { message?: string } | string
@@ -55,6 +40,63 @@ function toApiContent(m: Message): string | Array<Record<string, unknown>> {
 export function ChatPage() {
   const app = useApp()
   const [messages, setMessages] = useState<Message[]>([])
+  const [conversations, setConversations] = useState<Conversation[]>([])
+  const [active, setActive] = useState<Conversation | null>(null)
+  const attachmentTarget = useRef(active?.id)
+  attachmentTarget.current = active?.id
+  const [historyOpen, setHistoryOpen] = useState(true)
+  const [busy, setBusy] = useState(true)
+  const operation = useRef(false)
+  const [rename, setRename] = useState(false)
+  const [title, setTitle] = useState('')
+  const refresh = async () => setConversations(await api.conversations.list())
+  const report = (e: unknown) => app.toast(String(e), 'error')
+  useEffect(() => { void refresh().catch(report).finally(() => setBusy(false)) }, [])
+  const select = async (id?: string) => {
+    if (streaming || busy || operation.current) return
+    operation.current = true
+    setBusy(true)
+    try {
+      const c = id ? await api.conversations.load(id) : null
+      if (id && !c) throw new Error(L('会話を読み込めません', 'Could not load conversation'))
+      setActive(c)
+      setMessages(c?.messages ?? [])
+      setInput('')
+      setPending([])
+      setRename(false)
+    } catch (e) { report(e) } finally { operation.current = false; setBusy(false) }
+  }
+  const renameConversation = async () => {
+    if (!active || !title.trim() || streaming || busy || operation.current) return
+    operation.current = true
+    setBusy(true)
+    try {
+      await api.conversations.rename(active.id, title)
+      setActive({ ...active, title: title.trim() })
+      setRename(false)
+      await refresh()
+    } catch (e) { report(e) } finally { operation.current = false; setBusy(false) }
+  }
+  const deleteConversation = async () => {
+    if (!active || streaming || busy || operation.current) return
+    if (!window.confirm(L('この会話を削除しますか?', 'Delete this conversation?'))) return
+    operation.current = true
+    setBusy(true)
+    try {
+      await api.conversations.delete(active.id)
+      setActive(null)
+      setMessages([])
+      setInput('')
+      setPending([])
+      await refresh()
+    } catch (e) { report(e) } finally { operation.current = false; setBusy(false) }
+  }
+  const persist = async (c: Conversation, next: Message[]) => {
+    const saved = { ...c, messages: next, updatedAt: Date.now() }
+    await api.conversations.save(saved)
+    setActive(saved)
+    await refresh()
+  }
   const [input, setInput] = useState('')
   const [pending, setPending] = useState<string[]>([])
   const [streaming, setStreaming] = useState(false)
@@ -63,7 +105,8 @@ export function ChatPage() {
   const bottomRef = useRef<HTMLDivElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const s = app.server
-  const ready = s.state === 'running' && s.port
+  const modelMatches = canContinueConversation(active, s.modelId)
+  const ready = s.state === 'running' && s.port && modelMatches && !busy
   const vision = !!ready && !!s.vision
 
   useEffect(() => {
@@ -88,9 +131,10 @@ export function ChatPage() {
       )
       return
     }
+    const target = active?.id
     try {
       const urls = await Promise.all(images.slice(0, MAX_IMAGES).map(fileToDataUrl))
-      setPending((prev) => [...prev, ...urls].slice(0, MAX_IMAGES))
+      if (attachmentTarget.current === target) setPending((prev) => [...prev, ...urls].slice(0, MAX_IMAGES))
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       app.toast(L(`画像を読み込めません: ${msg}`, `Could not load the image: ${msg}`), 'error')
@@ -110,11 +154,16 @@ export function ChatPage() {
 
   const send = async () => {
     const text = input.trim()
-    if ((!text && pending.length === 0) || !ready || streaming) return
+    if ((!text && pending.length === 0) || !ready || streaming || operation.current) return
+    operation.current = true
     setInput('')
     const images = pending
     setPending([])
     const history: Message[] = [...messages, { role: 'user', content: text, images: images.length ? images : undefined }]
+    const conversation: Conversation = active ?? {
+      id: crypto.randomUUID(), title: conversationTitle(history), createdAt: Date.now(), updatedAt: Date.now(),
+      modelId: s.modelId, modelName: s.modelName, messages: [],
+    }
     setMessages([...history, { role: 'assistant', content: '', thinking: true }])
     setStreaming(true)
     const controller = new AbortController()
@@ -128,6 +177,8 @@ export function ChatPage() {
     let reasonEnd: number | undefined
     let finish: string | null | undefined
     const maxTokens = app.settings?.maxTokens ?? 2048
+    let finalStats: string | undefined
+    let failure: string | undefined
     const flush = (done = false) =>
       setMessages((prev) => {
         const next = [...prev]
@@ -136,6 +187,7 @@ export function ChatPage() {
         return next
       })
     try {
+      await persist(conversation, history)
       const body = {
         messages: [
           ...(app.settings?.systemPrompt?.trim() ? [{ role: 'system', content: app.settings.systemPrompt }] : []),
@@ -205,33 +257,43 @@ export function ChatPage() {
       flush(true)
       const sec = (performance.now() - t0) / 1000
       const rate = tps ?? tokens / Math.max(sec, 0.001)
-      const notice = finish === 'length' ? limitNotice(!!content.trim(), !!reasoning, tokens >= maxTokens, maxTokens, s.contextSize) : undefined
-      setMessages((prev) => {
-        const next = [...prev]
-        const last = next[next.length - 1]
-        next[next.length - 1] = {
-          ...last,
-          notice,
-          stats: L(`${tokens} トークン · ${rate.toFixed(1)} tok/s · ${sec.toFixed(1)} 秒`, `${tokens} tokens · ${rate.toFixed(1)} tok/s · ${sec.toFixed(1)}s`),
-        }
-        return next
-      })
+      finalStats = L(`${tokens} トークン · ${rate.toFixed(1)} tok/s · ${sec.toFixed(1)} 秒`, `${tokens} tokens · ${rate.toFixed(1)} tok/s · ${sec.toFixed(1)}s`)
     } catch (e) {
-      const aborted = controller.signal.aborted
-      setMessages((prev) => {
-        const next = [...prev]
-        const last = next[next.length - 1]
-        next[next.length - 1] = { ...last, thinking: false, content: last.content + (aborted ? L('\n\n(停止しました)', '\n\n(Stopped)') : `\n\n⚠ ${e instanceof Error ? e.message : String(e)}`) }
-        return next
-      })
+      if (!controller.signal.aborted) failure = e instanceof Error ? e.message : String(e)
     } finally {
+      const interrupted = controller.signal.aborted
+      const response: Message = { role: 'assistant', content: content + (interrupted ? L('\n\n(停止しました)', '\n\n(Stopped)') : failure ? `\n\n⚠ ${failure}` : ''), stats: finalStats, reasoning: reasoning || undefined,
+        reasoningMs: reasonStart !== undefined ? (reasonEnd ?? Date.now()) - reasonStart : undefined,
+        notice: finish === 'length' ? limitNotice(!!content.trim(), !!reasoning, tokens >= maxTokens, maxTokens, s.contextSize) : undefined }
+      const next = [...history, response]
+      setMessages(next)
+      await persist(conversation, next).catch(report)
+      operation.current = false
       setStreaming(false)
       abortRef.current = null
     }
   }
 
   return (
+    <div className="chat-layout">
+      <aside className={`conversation-sidebar ${historyOpen ? '' : 'collapsed'}`}>
+        <button className="ghost small" aria-expanded={historyOpen} onClick={() => setHistoryOpen(!historyOpen)}>{historyOpen ? '◀' : '▶'} {L('履歴', 'History')}</button>
+        {historyOpen && <>
+          <button disabled={streaming || busy} onClick={() => void select()}>{L('新しい会話', 'New Chat')}</button>
+          <div className="conversation-list">{conversations.map((c) => <button key={c.id} className={`ghost ${active?.id === c.id ? 'active' : ''}`} aria-current={active?.id === c.id ? 'true' : undefined} disabled={streaming || busy} onClick={() => void select(c.id)}>
+            <strong>{c.title}</strong><span className="muted small">{c.modelName}</span>
+          </button>)}</div>
+        </>}
+      </aside>
     <div className="page chat-page" onDragOver={(e) => e.preventDefault()} onDrop={onDrop}>
+      {active && <div className="conversation-actions">
+        {rename ? <form onSubmit={(e) => { e.preventDefault(); void renameConversation() }}>
+          <input aria-label={L('会話名', 'Conversation title')} value={title} onChange={(e) => setTitle(e.target.value)} maxLength={80} autoFocus />
+          <button disabled={busy}>{L('保存', 'Save')}</button><button type="button" onClick={() => setRename(false)}>{L('キャンセル', 'Cancel')}</button>
+        </form> : <><strong>{active.title}</strong><button disabled={streaming || busy} onClick={() => { setTitle(active.title); setRename(true) }}>{L('名前を変更', 'Rename')}</button>
+        <button className="danger" disabled={streaming || busy} onClick={() => void deleteConversation()}>{L('削除', 'Delete')}</button></>}
+      </div>}
+      {!modelMatches && <div className="notice warn">{L(`この会話のモデル: ${active?.modelName}。ライブラリから同じモデルを起動するか、新しい会話を作成してください。`, `Conversation model: ${active?.modelName}. Launch the same model from the Library or create a new chat.`)}</div>}
       <div className="chat-head">
         <div>
           {ready ? (
@@ -257,7 +319,7 @@ export function ChatPage() {
           <button className="ghost small" onClick={() => setShowParams((v) => !v)}>
             {showParams ? L('パラメータを隠す', 'Hide parameters') : L('パラメータ', 'Parameters')}
           </button>
-          <button className="ghost small" onClick={() => setMessages([])} disabled={streaming || messages.length === 0}>
+          <button className="ghost small" onClick={() => void select()} disabled={streaming || busy || messages.length === 0}>
             {L('会話をクリア', 'Clear chat')}
           </button>
           {!ready && s.state !== 'starting' && (
@@ -430,6 +492,7 @@ export function ChatPage() {
           </button>
         )}
       </form>
+    </div>
     </div>
   )
 }

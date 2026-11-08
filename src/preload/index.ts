@@ -12,6 +12,13 @@ const on = <T extends unknown[]>(channel: string, cb: (...args: T) => void) => {
 }
 
 const api: Api = {
+  conversations: {
+    list: () => invoke('conversations:list'),
+    load: (id) => invoke('conversations:load', id),
+    save: (c) => invoke('conversations:save', c),
+    rename: (id, title) => invoke('conversations:rename', id, title),
+    delete: (id) => invoke('conversations:delete', id),
+  },
   boot: {
     progress: (p) => ipcRenderer.send('boot:progress', p),
     done: () => ipcRenderer.send('boot:done'),

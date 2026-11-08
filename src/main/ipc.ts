@@ -1,4 +1,6 @@
-import { BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import { ConversationStore } from './conversations'
+import type { Conversation } from '@shared/conversations'
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import type { Backend, HFGgufMeta, ImageGenParams, ModelEntry, SdBackend, SearchOptions, ServerStartOptions, Settings, TorchBackend } from '@shared/types'
 import { L } from '@shared/i18n'
 import type { TranslationModelId } from '@shared/translation'
@@ -46,6 +48,13 @@ export function registerIpc(ctx: IpcContext): void {
     const win = getWindow()
     if (win && !win.isDestroyed()) win.webContents.send(channel, ...args)
   }
+
+  const conversations = new ConversationStore(app.getPath('userData'))
+  ipcMain.handle('conversations:list', () => conversations.list())
+  ipcMain.handle('conversations:load', (_e, id: string) => conversations.load(id))
+  ipcMain.handle('conversations:save', (_e, c: Conversation) => conversations.save(c))
+  ipcMain.handle('conversations:rename', (_e, id: string, title: string) => conversations.rename(id, title))
+  ipcMain.handle('conversations:delete', (_e, id: string) => conversations.delete(id))
 
   // 設定
   ipcMain.handle('settings:get', () => settings.get())

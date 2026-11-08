@@ -560,6 +560,13 @@ export interface BootProgress {
 
 /** preload が window.api として公開する API */
 export interface Api {
+  conversations: {
+    list(): Promise<import('./conversations').Conversation[]>
+    load(id: string): Promise<import('./conversations').Conversation | null>
+    save(conversation: import('./conversations').Conversation): Promise<void>
+    rename(id: string, title: string): Promise<void>
+    delete(id: string): Promise<void>
+  }
   boot: {
     /** 初期化の進捗をスプラッシュへ通知する */
     progress(p: BootProgress): void

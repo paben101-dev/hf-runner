@@ -266,3 +266,13 @@ pre.code { background: #0b0e12; border: 1px solid var(--border); border-radius: 
 .load-progress .progress { height: 8px; }
 .load-pct { font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; min-width: 38px; }
 .chat-loading { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 14px; }
+
+/* Local conversation history */
+.chat-layout { display: flex; height: 100%; min-height: 0; }
+.chat-layout .chat-page { flex: 1; min-width: 0; }
+.conversation-sidebar { width: 200px; padding: 12px; border-right: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px; }
+.conversation-sidebar.collapsed { width: 74px; }
+.conversation-list { overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
+.conversation-list button { text-align: left; display: flex; flex-direction: column; overflow-wrap: anywhere; }
+.conversation-list .active { background: var(--panel-2); }
+.conversation-actions, .conversation-actions form { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
