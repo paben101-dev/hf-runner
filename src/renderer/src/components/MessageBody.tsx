@@ -1,7 +1,7 @@
 import { memo, useState } from 'react'
 import Markdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { L } from '@shared/i18n'
+import { L, type Lang } from '@shared/i18n'
 import { openExternal } from '../api'
 
 /** Only explicit web links may leave the renderer; relative and app/file URLs stay inert. */
@@ -17,7 +17,8 @@ function CodeBlock({ code, language }: { code: string; language: string }) {
   const [copyResult, setCopyResult] = useState<{ code: string; ok: boolean } | null>(null)
   const copyState = copyResult?.code === code ? (copyResult.ok ? 'copied' : 'failed') : 'idle'
   const copy = async () => {
-    try { await navigator.clipboard.writeText(code); setCopyResult({ code, ok: true }) }
+    // mdast-to-hast adds one display newline to code blocks; do not copy that synthetic newline.
+    try { await navigator.clipboard.writeText(code.replace(/\n$/, '')); setCopyResult({ code, ok: true }) }
     catch { setCopyResult({ code, ok: false }) }
   }
   return <div className="markdown-code-block">
@@ -49,8 +50,8 @@ const components: Components = {
   table: ({ children }) => <div className="markdown-table"><table>{children}</table></div>,
 }
 
-/** Presentation only: the supplied raw text is never changed or written back. */
-export const MessageBody = memo(function MessageBody({ text, markdown = true }: { text: string; markdown?: boolean }) {
+/** Presentation only. language participates in memo comparison so translated controls update. */
+export const MessageBody = memo(function MessageBody({ text, markdown = true }: { text: string; markdown?: boolean; language?: Lang }) {
   if (!markdown) return <div className="msg-body"><div className="pre">{text}</div></div>
   return <div className="msg-body markdown-body">
     <Markdown remarkPlugins={[remarkGfm]} skipHtml

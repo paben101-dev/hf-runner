@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type DragEvent, type ClipboardEvent } from 'react'
 import { formatCount } from '@shared/format'
-import { L } from '@shared/i18n'
+import { getLang, L } from '@shared/i18n'
 import { limitNotice, THINKING_MODES, thinkingParams, type ThinkingMode } from '@shared/thinking'
 import { MAX_MAX_TOKENS, MAX_TOKEN_STOPS, MIN_MAX_TOKENS, nearestStopIndex, parseMaxTokens } from '@shared/tokens'
 import { useApp } from '../App'
@@ -353,7 +353,7 @@ export function ChatPage() {
                 ))}
               </div>
             )}
-            <MessageBody text={m.content} markdown={app.settings?.renderMarkdown ?? true} />
+            <MessageBody text={m.content} markdown={app.settings?.renderMarkdown ?? true} language={getLang()} />
             {m.notice && <div className="notice small warn msg-notice">⚠ {m.notice}</div>}
             {m.stats && <div className="msg-stats muted small">{m.stats}</div>}
           </div>
