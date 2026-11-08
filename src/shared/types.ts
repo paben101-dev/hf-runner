@@ -561,6 +561,7 @@ export interface BootProgress {
 /** preload が window.api として公開する API */
 export interface Api {
   conversations: {
+    menu(): Promise<'rename' | 'delete' | null>
     list(): Promise<import('./conversations').Conversation[]>
     load(id: string): Promise<import('./conversations').Conversation | null>
     save(conversation: import('./conversations').Conversation): Promise<void>

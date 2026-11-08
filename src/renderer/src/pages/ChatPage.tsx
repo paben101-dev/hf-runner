@@ -4,6 +4,7 @@ import { L } from '@shared/i18n'
 import { limitNotice, THINKING_MODES, thinkingParams, type ThinkingMode } from '@shared/thinking'
 import { MAX_MAX_TOKENS, MAX_TOKEN_STOPS, MIN_MAX_TOKENS, nearestStopIndex, parseMaxTokens } from '@shared/tokens'
 import { useApp } from '../App'
+import { ConversationSidebar } from '../components/ConversationSidebar'
 import { LoadProgressView } from '../components/LoadProgress'
 import { api } from '../api'
 import { conversationTitle, canContinueConversation, type Conversation, type ChatMessage as Message } from '@shared/conversations'
@@ -44,10 +45,9 @@ export function ChatPage() {
   const [active, setActive] = useState<Conversation | null>(null)
   const attachmentTarget = useRef(active?.id)
   attachmentTarget.current = active?.id
-  const [historyOpen, setHistoryOpen] = useState(true)
   const [busy, setBusy] = useState(true)
   const operation = useRef(false)
-  const [rename, setRename] = useState(false)
+  const [rename, setRename] = useState<Conversation | null>(null)
   const [title, setTitle] = useState('')
   const refresh = async () => setConversations(await api.conversations.list())
   const report = (e: unknown) => app.toast(String(e), 'error')
@@ -63,31 +63,34 @@ export function ChatPage() {
       setMessages(c?.messages ?? [])
       setInput('')
       setPending([])
-      setRename(false)
+      setRename(null)
     } catch (e) { report(e) } finally { operation.current = false; setBusy(false) }
   }
   const renameConversation = async () => {
-    if (!active || !title.trim() || streaming || busy || operation.current) return
+    if (!rename || !title.trim() || streaming || busy || operation.current) return
     operation.current = true
     setBusy(true)
     try {
-      await api.conversations.rename(active.id, title)
-      setActive({ ...active, title: title.trim() })
-      setRename(false)
+      await api.conversations.rename(rename.id, title)
+      if (active?.id === rename.id) setActive({ ...active, title: title.trim() })
+      setRename(null)
       await refresh()
     } catch (e) { report(e) } finally { operation.current = false; setBusy(false) }
   }
-  const deleteConversation = async () => {
-    if (!active || streaming || busy || operation.current) return
-    if (!window.confirm(L('この会話を削除しますか?', 'Delete this conversation?'))) return
+  const deleteConversation = async (target = active) => {
+    if (!target || streaming || busy || operation.current) return
+    if (!window.confirm(L(`「${target.title}」を削除しますか?`, `Delete "${target.title}"?`))) return
     operation.current = true
     setBusy(true)
     try {
-      await api.conversations.delete(active.id)
-      setActive(null)
-      setMessages([])
-      setInput('')
-      setPending([])
+      await api.conversations.delete(target.id)
+      if (active?.id === target.id) {
+        setActive(null)
+        setMessages([])
+        setInput('')
+        setPending([])
+      }
+      if (rename?.id === target.id) setRename(null)
       await refresh()
     } catch (e) { report(e) } finally { operation.current = false; setBusy(false) }
   }
@@ -153,6 +156,7 @@ export function ChatPage() {
   }
 
   const send = async () => {
+    if (rename) return
     const text = input.trim()
     if ((!text && pending.length === 0) || !ready || streaming || operation.current) return
     operation.current = true
@@ -276,21 +280,20 @@ export function ChatPage() {
 
   return (
     <div className="chat-layout">
-      <aside className={`conversation-sidebar ${historyOpen ? '' : 'collapsed'}`}>
-        <button className="ghost small" aria-expanded={historyOpen} onClick={() => setHistoryOpen(!historyOpen)}>{historyOpen ? '◀' : '▶'} {L('履歴', 'History')}</button>
-        {historyOpen && <>
-          <button disabled={streaming || busy} onClick={() => void select()}>{L('新しい会話', 'New Chat')}</button>
-          <div className="conversation-list">{conversations.map((c) => <button key={c.id} className={`ghost ${active?.id === c.id ? 'active' : ''}`} aria-current={active?.id === c.id ? 'true' : undefined} disabled={streaming || busy} onClick={() => void select(c.id)}>
-            <strong>{c.title}</strong><span className="muted small">{c.modelName}</span>
-          </button>)}</div>
-        </>}
-      </aside>
+      <ConversationSidebar conversations={conversations} activeId={active?.id} disabled={streaming || busy}
+        onSelect={(id) => void select(id)} onNew={() => void select()}
+        onRename={(c) => {
+          if (operation.current || streaming || busy) return
+          setTitle(c.title)
+          setRename(c)
+        }}
+        onDelete={(c) => void deleteConversation(c)} onError={report} />
     <div className="page chat-page" onDragOver={(e) => e.preventDefault()} onDrop={onDrop}>
-      {active && <div className="conversation-actions">
+      {(active || rename) && <div className="conversation-actions">
         {rename ? <form onSubmit={(e) => { e.preventDefault(); void renameConversation() }}>
           <input aria-label={L('会話名', 'Conversation title')} value={title} onChange={(e) => setTitle(e.target.value)} maxLength={80} autoFocus />
-          <button disabled={busy}>{L('保存', 'Save')}</button><button type="button" onClick={() => setRename(false)}>{L('キャンセル', 'Cancel')}</button>
-        </form> : <><strong>{active.title}</strong><button disabled={streaming || busy} onClick={() => { setTitle(active.title); setRename(true) }}>{L('名前を変更', 'Rename')}</button>
+          <button disabled={busy}>{L('保存', 'Save')}</button><button type="button" onClick={() => setRename(null)}>{L('キャンセル', 'Cancel')}</button>
+        </form> : <><strong>{active?.title}</strong><button disabled={streaming || busy} onClick={() => { if (active) { setTitle(active.title); setRename(active) } }}>{L('名前を変更', 'Rename')}</button>
         <button className="danger" disabled={streaming || busy} onClick={() => void deleteConversation()}>{L('削除', 'Delete')}</button></>}
       </div>}
       {!modelMatches && <div className="notice warn">{L(`この会話のモデル: ${active?.modelName}。ライブラリから同じモデルを起動するか、新しい会話を作成してください。`, `Conversation model: ${active?.modelName}. Launch the same model from the Library or create a new chat.`)}</div>}
@@ -457,7 +460,7 @@ export function ChatPage() {
           type="button"
           className="ghost attach"
           onClick={() => fileRef.current?.click()}
-          disabled={!ready || !vision || streaming}
+          disabled={!ready || !vision || streaming || !!rename}
           title={vision ? L('画像を添付(貼り付け・ドロップも可)', 'Attach images (you can also paste or drop them)') : L('このモデルは画像入力に対応していません', 'This model does not support image input')}
         >
           🖼
@@ -479,7 +482,7 @@ export function ChatPage() {
                 : L('メッセージを入力 (Enter で送信、Shift+Enter で改行)', 'Type a message (Enter to send, Shift+Enter for a new line)')
               : L('モデルを起動してください', 'Launch a model first')
           }
-          disabled={!ready}
+          disabled={!ready || !!rename}
           rows={2}
         />
         {streaming ? (
@@ -487,7 +490,7 @@ export function ChatPage() {
             {L('■ 停止', '■ Stop')}
           </button>
         ) : (
-          <button type="submit" className="primary" disabled={!ready || (!input.trim() && pending.length === 0)}>
+          <button type="submit" className="primary" disabled={!ready || !!rename || (!input.trim() && pending.length === 0)}>
             {L('送信', 'Send')}
           </button>
         )}

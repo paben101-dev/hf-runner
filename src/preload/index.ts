@@ -13,6 +13,7 @@ const on = <T extends unknown[]>(channel: string, cb: (...args: T) => void) => {
 
 const api: Api = {
   conversations: {
+    menu: () => invoke('conversations:menu'),
     list: () => invoke('conversations:list'),
     load: (id) => invoke('conversations:load', id),
     save: (c) => invoke('conversations:save', c),

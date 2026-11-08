@@ -94,7 +94,7 @@ Click "▶ Launch" in the Library to load the model and switch to Chat. A progre
 
 ### Local conversation history
 
-Chat's collapsible **History** sidebar lists saved conversations with the most recently updated first. **New Chat** starts an independent conversation; its title comes from the first message. Select a conversation to reopen it, or use **Rename** and **Delete** above the chat. Deletion asks for confirmation and removes the conversation and its attachments. **Clear chat** starts a new chat without deleting the previous one.
+Chat's collapsible **History** sidebar lists saved conversations with the most recently updated first. **New Chat** starts an independent conversation; its title comes from the first message. Drag the divider between History and the chat to adjust the sidebar width; the width is remembered on this device. Select a conversation to reopen it, or use **Rename** and **Delete** above the chat. Right-click any conversation in History for the same actions, including conversations that are not currently open. Deletion asks for confirmation and removes the conversation and its attachments. **Clear chat** starts a new chat without deleting the previous one.
 
 User messages and completed, stopped, or failed responses save automatically. Stop a running response before switching conversations, renaming, or deleting. History preserves image attachments and assistant reasoning. Reopening a conversation does not start or download its model: launch the same model from the Library to continue, or start a new chat for another model.
 

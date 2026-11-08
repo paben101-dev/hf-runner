@@ -1,6 +1,6 @@
 import { ConversationStore } from './conversations'
 import type { Conversation } from '@shared/conversations'
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron'
 import type { Backend, HFGgufMeta, ImageGenParams, ModelEntry, SdBackend, SearchOptions, ServerStartOptions, Settings, TorchBackend } from '@shared/types'
 import { L } from '@shared/i18n'
 import type { TranslationModelId } from '@shared/translation'
@@ -50,6 +50,15 @@ export function registerIpc(ctx: IpcContext): void {
   }
 
   const conversations = new ConversationStore(app.getPath('userData'))
+  ipcMain.handle('conversations:menu', () => new Promise<'rename' | 'delete' | null>((resolve) => {
+    const win = getWindow()
+    if (!win || win.isDestroyed()) { resolve(null); return }
+    const menu = Menu.buildFromTemplate([
+      { label: L('名前を変更', 'Rename'), click: () => resolve('rename') },
+      { label: L('削除', 'Delete'), click: () => resolve('delete') },
+    ])
+    menu.popup({ window: win, callback: () => resolve(null) })
+  }))
   ipcMain.handle('conversations:list', () => conversations.list())
   ipcMain.handle('conversations:load', (_e, id: string) => conversations.load(id))
   ipcMain.handle('conversations:save', (_e, c: Conversation) => conversations.save(c))
