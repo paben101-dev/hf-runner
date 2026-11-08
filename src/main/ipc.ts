@@ -53,17 +53,37 @@ export function registerIpc(ctx: IpcContext): void {
   ipcMain.handle('conversations:menu', () => new Promise<'rename' | 'delete' | null>((resolve) => {
     const win = getWindow()
     if (!win || win.isDestroyed()) { resolve(null); return }
+    let action: 'rename' | 'delete' | null = null
     const menu = Menu.buildFromTemplate([
-      { label: L('名前を変更', 'Rename'), click: () => resolve('rename') },
-      { label: L('削除', 'Delete'), click: () => resolve('delete') },
+      { label: L('名前を変更', 'Rename'), click: () => { action = 'rename' } },
+      { label: L('削除', 'Delete'), click: () => { action = 'delete' } },
     ])
-    menu.popup({ window: win, callback: () => resolve(null) })
+    // Finish dismissing the native menu before opening a confirmation dialog.
+    menu.popup({ window: win, callback: () => resolve(action) })
   }))
   ipcMain.handle('conversations:list', () => conversations.list())
   ipcMain.handle('conversations:load', (_e, id: string) => conversations.load(id))
   ipcMain.handle('conversations:save', (_e, c: Conversation) => conversations.save(c))
   ipcMain.handle('conversations:rename', (_e, id: string, title: string) => conversations.rename(id, title))
-  ipcMain.handle('conversations:delete', (_e, id: string) => conversations.delete(id))
+  ipcMain.handle('conversations:delete', async (_e, id: string) => {
+    const win = getWindow()
+    const conversation = conversations.load(id)
+    if (!win || win.isDestroyed() || !conversation) return false
+    // A parented native dialog avoids window.confirm() leaving Windows input unfocused.
+    const { response } = await dialog.showMessageBox(win, {
+      type: 'question',
+      title: L('会話を削除', 'Delete conversation'),
+      message: L(`「${conversation.title}」を削除しますか?`, `Delete "${conversation.title}"?`),
+      buttons: [L('キャンセル', 'Cancel'), L('削除', 'Delete')],
+      defaultId: 0,
+      cancelId: 0,
+      noLink: true,
+    })
+    if (!win.isDestroyed()) win.webContents.focus()
+    if (response !== 1) return false
+    conversations.delete(id)
+    return true
+  })
 
   // 設定
   ipcMain.handle('settings:get', () => settings.get())

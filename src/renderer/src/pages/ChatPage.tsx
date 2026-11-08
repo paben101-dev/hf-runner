@@ -49,6 +49,9 @@ export function ChatPage() {
   const operation = useRef(false)
   const [rename, setRename] = useState<Conversation | null>(null)
   const [title, setTitle] = useState('')
+  const composerRef = useRef<HTMLTextAreaElement>(null)
+  const [focusRequest, setFocusRequest] = useState(0)
+  const focusedRequest = useRef(0)
   const refresh = async () => setConversations(await api.conversations.list())
   const report = (e: unknown) => app.toast(String(e), 'error')
   useEffect(() => { void refresh().catch(report).finally(() => setBusy(false)) }, [])
@@ -64,6 +67,7 @@ export function ChatPage() {
       setInput('')
       setPending([])
       setRename(null)
+      setFocusRequest((n) => n + 1)
     } catch (e) { report(e) } finally { operation.current = false; setBusy(false) }
   }
   const renameConversation = async () => {
@@ -79,11 +83,11 @@ export function ChatPage() {
   }
   const deleteConversation = async (target = active) => {
     if (!target || streaming || busy || operation.current) return
-    if (!window.confirm(L(`「${target.title}」を削除しますか?`, `Delete "${target.title}"?`))) return
     operation.current = true
     setBusy(true)
     try {
-      await api.conversations.delete(target.id)
+      const deleted = await api.conversations.delete(target.id)
+      if (!deleted) return
       if (active?.id === target.id) {
         setActive(null)
         setMessages([])
@@ -92,7 +96,11 @@ export function ChatPage() {
       }
       if (rename?.id === target.id) setRename(null)
       await refresh()
-    } catch (e) { report(e) } finally { operation.current = false; setBusy(false) }
+    } catch (e) { report(e) } finally {
+      operation.current = false
+      setBusy(false)
+      setFocusRequest((n) => n + 1)
+    }
   }
   const persist = async (c: Conversation, next: Message[]) => {
     const saved = { ...c, messages: next, updatedAt: Date.now() }
@@ -111,6 +119,13 @@ export function ChatPage() {
   const modelMatches = canContinueConversation(active, s.modelId)
   const ready = s.state === 'running' && s.port && modelMatches && !busy
   const vision = !!ready && !!s.vision
+
+  useEffect(() => {
+    // Wait for React to re-enable the composer after the IPC operation finishes.
+    if (focusRequest === focusedRequest.current || !ready || rename || app.page !== 'chat') return
+    composerRef.current?.focus()
+    focusedRequest.current = focusRequest
+  }, [focusRequest, ready, rename, app.page])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: 'end' })
@@ -466,6 +481,7 @@ export function ChatPage() {
           🖼
         </button>
         <textarea
+          ref={composerRef}
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onPaste={onPaste}
