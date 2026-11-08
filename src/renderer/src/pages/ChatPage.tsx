@@ -4,6 +4,7 @@ import { L } from '@shared/i18n'
 import { limitNotice, THINKING_MODES, thinkingParams, type ThinkingMode } from '@shared/thinking'
 import { MAX_MAX_TOKENS, MAX_TOKEN_STOPS, MIN_MAX_TOKENS, nearestStopIndex, parseMaxTokens } from '@shared/tokens'
 import { useApp } from '../App'
+import { MessageBody } from '../components/MessageBody'
 import { LoadProgressView } from '../components/LoadProgress'
 
 interface Message {
@@ -352,7 +353,7 @@ export function ChatPage() {
                 ))}
               </div>
             )}
-            <MessageBody text={m.content} />
+            <MessageBody text={m.content} markdown={app.settings?.renderMarkdown ?? true} />
             {m.notice && <div className="notice small warn msg-notice">⚠ {m.notice}</div>}
             {m.stats && <div className="msg-stats muted small">{m.stats}</div>}
           </div>
@@ -502,24 +503,4 @@ function ThinkingSeconds({ since }: { since?: number }) {
 function lastLine(text: string): string {
   const line = text.trimEnd().split('\n').pop() ?? ''
   return line.length > 120 ? `…${line.slice(-120)}` : line
-}
-
-/** ``` コードブロックだけを区別して表示する簡易レンダラ */
-function MessageBody({ text }: { text: string }) {
-  const parts = text.split(/```/)
-  return (
-    <div className="msg-body">
-      {parts.map((p, i) =>
-        i % 2 === 1 ? (
-          <pre key={i} className="code">
-            {p.replace(/^[a-zA-Z0-9_+-]*\n/, '')}
-          </pre>
-        ) : (
-          <div key={i} className="pre">
-            {p}
-          </div>
-        ),
-      )}
-    </div>
-  )
 }

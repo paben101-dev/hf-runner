@@ -92,6 +92,14 @@ Click "▶ Launch" in the Library to load the model and switch to Chat. A progre
 - When you're done, click "⏏ Unload" to free the memory
 - Each engine's launch command can be edited under "Launch command" in Settings (e.g. add `-ctk q8_0 -ctv q8_0` to llama.cpp, or change `-c {ctx}` to `-c 8192`). Placeholders such as `{model}` and `{port}` are replaced with the model path, port, etc. on each launch. "Restore default" reverts it at any time
 
+### Markdown in chat
+
+Chat messages render Markdown by default: headings, bold/italic/strikethrough, nested lists, blockquotes, inline and fenced code, GFM tables, links, and horizontal rules. Standard Markdown paragraph and line-break rules apply (use a blank line for a paragraph, or two trailing spaces for a hard line break). Streaming responses are formatted as they arrive, including unfinished code fences.
+
+Code blocks preserve indentation, scroll horizontally, show a language label when provided, and include a **Copy** button. Syntax highlighting is not included. In **Settings → Chat**, turn off **Render Markdown in chat** to show the original text literally. The setting is saved, applies immediately, and only changes presentation; messages and inference requests keep their raw text.
+
+HTML is disabled. Markdown images appear as descriptive text and never load resources; image attachments continue to work as before. Only explicit HTTP/HTTPS links are clickable and open in your external browser. Local files, app protocols, relative links, and other URL schemes are disabled. Math formulas, embedded HTML, and syntax highlighting are not supported.
+
 ### 4. Image generation
 
 Install stable-diffusion.cpp, then search with "Image generation" checked (e.g. `stable-diffusion-v1-5`, `FLUX.1-schnell`). After downloading, launch the model on the "Image generation" page, enter a prompt and click "Generate".
@@ -196,6 +204,7 @@ The distribution includes the following software; their license texts are bundle
 | [Electron](https://www.electronjs.org/) / Chromium | MIT / various (`LICENSES.chromium.html`) |
 | [React](https://react.dev/) (react, react-dom, scheduler) | MIT |
 | [extract-zip](https://github.com/max-mapper/extract-zip) and its dependencies (yauzl, debug, …) | BSD-2-Clause / MIT / ISC |
+| [react-markdown](https://github.com/remarkjs/react-markdown), [remark-gfm](https://github.com/remarkjs/remark-gfm) | MIT |
 
 The following are downloaded by the user's PC from their official sources at run time (not included in the app).
 

@@ -207,6 +207,17 @@ export function SettingsPage() {
         </div>
       </Section>
 
+      <Section title={L('チャット', 'Chat')}>
+        <div className="form-row">
+          <div className="form-label">{L('表示', 'Appearance')}</div>
+          <label>
+            <input type="checkbox" checked={s.renderMarkdown ?? true}
+              onChange={(e) => app.updateSettings({ renderMarkdown: e.target.checked })} />
+            {' '}{L('チャットで Markdown を表示', 'Render Markdown in chat')}
+          </label>
+        </div>
+      </Section>
+
       <Section title={L('推論エンジン 1: llama.cpp (GGUF 用)', 'Inference engine 1: llama.cpp (for GGUF)')}>
         <div className="form-row">
           <div className="form-label">{L('現在のバージョン', 'Current version')}</div>

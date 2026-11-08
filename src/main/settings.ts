@@ -16,6 +16,7 @@ const KEYS: Array<keyof Settings> = [
   'gpuLayers',
   'threads',
   'serverPort',
+  'renderMarkdown',
   'systemPrompt',
   'temperature',
   'maxTokens',
@@ -60,6 +61,7 @@ export class SettingsStore {
       gpuLayers: 99,
       threads: 0,
       serverPort: 18080,
+      renderMarkdown: true,
       systemPrompt: '',
       temperature: 0.7,
       maxTokens: 2048,
@@ -87,6 +89,7 @@ export class SettingsStore {
       const raw = JSON.parse(fs.readFileSync(this.file, 'utf8')) as Record<string, unknown>
       const out: Record<string, unknown> = {}
       for (const k of KEYS) if (k in raw) out[k] = raw[k]
+      if (typeof out.renderMarkdown !== 'boolean') delete out.renderMarkdown
       // 翻訳モデルを選べるようになる前から翻訳を使っていた人は、取得済みの Qwen3-1.7B のままにする (勝手に 2.3GB を取りに行かない)
       if (!('translationModel' in raw) && raw.promptTranslation === true) out.translationModel = 'qwen3-1.7b'
       // ポータブル時に相対で保存したモデルフォルダを絶対パスに戻す
@@ -115,6 +118,7 @@ export class SettingsStore {
   update(patch: Partial<Settings>): Settings {
     const clean: Record<string, unknown> = {}
     for (const k of KEYS) if (k in patch && patch[k] !== undefined) clean[k] = patch[k]
+    if (typeof clean.renderMarkdown !== 'boolean') delete clean.renderMarkdown
     this.data = { ...this.data, ...(clean as Partial<Settings>) }
     fs.mkdirSync(path.dirname(this.file), { recursive: true })
     fs.writeFileSync(this.file, JSON.stringify(this.serialize(), null, 2))
