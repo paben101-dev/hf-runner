@@ -43,8 +43,8 @@ export function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([])
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [active, setActive] = useState<Conversation | null>(null)
-  const attachmentTarget = useRef(active?.id)
-  attachmentTarget.current = active?.id
+  const attachmentEpoch = useRef(0)
+  const pendingSave = useRef<Conversation | null>(null)
   const [busy, setBusy] = useState(true)
   const operation = useRef(false)
   const [rename, setRename] = useState<Conversation | null>(null)
@@ -60,6 +60,8 @@ export function ChatPage() {
     operation.current = true
     setBusy(true)
     try {
+      await ensureSaved()
+      attachmentEpoch.current++
       const c = id ? await api.conversations.load(id) : null
       if (id && !c) throw new Error(L('会話を読み込めません', 'Could not load conversation'))
       setActive(c)
@@ -75,6 +77,7 @@ export function ChatPage() {
     operation.current = true
     setBusy(true)
     try {
+      await ensureSaved()
       await api.conversations.rename(rename.id, title)
       if (active?.id === rename.id) setActive({ ...active, title: title.trim() })
       setRename(null)
@@ -86,9 +89,11 @@ export function ChatPage() {
     operation.current = true
     setBusy(true)
     try {
+      await ensureSaved()
       const deleted = await api.conversations.delete(target.id)
       if (!deleted) return
       if (active?.id === target.id) {
+        attachmentEpoch.current++
         setActive(null)
         setMessages([])
         setInput('')
@@ -104,9 +109,16 @@ export function ChatPage() {
   }
   const persist = async (c: Conversation, next: Message[]) => {
     const saved = { ...c, messages: next, updatedAt: Date.now() }
-    await api.conversations.save(saved)
+    // Keep identity/model association even if the first save fails.
     setActive(saved)
-    await refresh()
+    pendingSave.current = saved
+    await api.conversations.save(saved)
+    pendingSave.current = null
+    // A sidebar refresh failure does not mean the messages failed to save.
+    await refresh().catch(report)
+  }
+  const ensureSaved = async () => {
+    if (pendingSave.current) await persist(pendingSave.current, pendingSave.current.messages)
   }
   const [input, setInput] = useState('')
   const [pending, setPending] = useState<string[]>([])
@@ -133,10 +145,12 @@ export function ChatPage() {
 
   // モデルが変わったら添付をクリア(画像非対応モデルに送らないため)
   useEffect(() => {
+    attachmentEpoch.current++
     setPending([])
   }, [s.modelId])
 
   const addFiles = async (files: Iterable<File>) => {
+    if (operation.current || streaming || busy || rename) return
     const images = [...files].filter((f) => f.type.startsWith('image/'))
     if (images.length === 0) return
     if (!vision) {
@@ -149,10 +163,10 @@ export function ChatPage() {
       )
       return
     }
-    const target = active?.id
+    const epoch = attachmentEpoch.current
     try {
       const urls = await Promise.all(images.slice(0, MAX_IMAGES).map(fileToDataUrl))
-      if (attachmentTarget.current === target) setPending((prev) => [...prev, ...urls].slice(0, MAX_IMAGES))
+      if (attachmentEpoch.current === epoch) setPending((prev) => [...prev, ...urls].slice(0, MAX_IMAGES))
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       app.toast(L(`画像を読み込めません: ${msg}`, `Could not load the image: ${msg}`), 'error')
@@ -175,6 +189,7 @@ export function ChatPage() {
     const text = input.trim()
     if ((!text && pending.length === 0) || !ready || streaming || operation.current) return
     operation.current = true
+    attachmentEpoch.current++
     setInput('')
     const images = pending
     setPending([])
@@ -198,6 +213,7 @@ export function ChatPage() {
     const maxTokens = app.settings?.maxTokens ?? 2048
     let finalStats: string | undefined
     let failure: string | undefined
+    let requestStarted = false
     const flush = (done = false) =>
       setMessages((prev) => {
         const next = [...prev]
@@ -207,6 +223,7 @@ export function ChatPage() {
       })
     try {
       await persist(conversation, history)
+      requestStarted = true
       const body = {
         messages: [
           ...(app.settings?.systemPrompt?.trim() ? [{ role: 'system', content: app.settings.systemPrompt }] : []),
@@ -278,15 +295,16 @@ export function ChatPage() {
       const rate = tps ?? tokens / Math.max(sec, 0.001)
       finalStats = L(`${tokens} トークン · ${rate.toFixed(1)} tok/s · ${sec.toFixed(1)} 秒`, `${tokens} tokens · ${rate.toFixed(1)} tok/s · ${sec.toFixed(1)}s`)
     } catch (e) {
+      if (!requestStarted) report(e)
       if (!controller.signal.aborted) failure = e instanceof Error ? e.message : String(e)
     } finally {
       const interrupted = controller.signal.aborted
       const response: Message = { role: 'assistant', content: content + (interrupted ? L('\n\n(停止しました)', '\n\n(Stopped)') : failure ? `\n\n⚠ ${failure}` : ''), stats: finalStats, reasoning: reasoning || undefined,
         reasoningMs: reasonStart !== undefined ? (reasonEnd ?? Date.now()) - reasonStart : undefined,
         notice: finish === 'length' ? limitNotice(!!content.trim(), !!reasoning, tokens >= maxTokens, maxTokens, s.contextSize) : undefined }
-      const next = [...history, response]
+      const next = requestStarted ? [...history, response] : history
       setMessages(next)
-      await persist(conversation, next).catch(report)
+      if (requestStarted) await persist(conversation, next).catch(report)
       operation.current = false
       setStreaming(false)
       abortRef.current = null

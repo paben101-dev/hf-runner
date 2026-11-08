@@ -104,6 +104,37 @@ describe('local conversations', () => {
     expect(store.load(c.id)?.messages[0].images).toEqual([])
     expect(fs.readFileSync(path.join(folder, 'conversation.json'), 'utf8')).not.toContain('hfToken')
   })
+  it('renames metadata without rehydrating or dropping a missing attachment reference', () => {
+    const { store, dir } = setup(), c = conversation()
+    c.messages[0].images = ['data:image/png;base64,aGVsbG8=']
+    store.save(c)
+    const folder = path.join(dir, 'conversations', c.id)
+    const image = fs.readdirSync(folder).find((f) => f.endsWith('.png'))!
+    fs.unlinkSync(path.join(folder, image))
+    store.rename(c.id, 'Renamed')
+    expect(JSON.parse(fs.readFileSync(path.join(folder, 'conversation.json'), 'utf8')).messages[0].images).toEqual([image])
+    expect(store.load(c.id)?.title).toBe('Renamed')
+  })
+  it('never leaves a partially written attachment under its final filename', () => {
+    const { store, dir } = setup(), c = conversation()
+    c.messages[0].images = ['data:image/png;base64,aGVsbG8=']
+    const rename = vi.spyOn(fs, 'renameSync').mockImplementation(() => { throw new Error('interrupted image commit') })
+    try { expect(() => store.save(c)).toThrow('interrupted image commit') }
+    finally { rename.mockRestore() }
+    expect(fs.readdirSync(path.join(dir, 'conversations', c.id))).toEqual([])
+    store.save(c)
+    expect(store.load(c.id)?.messages[0].images).toEqual(c.messages[0].images)
+  })
+  it('rejects symlinked conversation folders instead of escaping user data', () => {
+    const { store, dir } = setup(), c = conversation()
+    const outside = path.join(dir, 'outside')
+    fs.mkdirSync(outside)
+    fs.symlinkSync(outside, path.join(dir, 'conversations', c.id), 'junction')
+    expect(() => store.save(c)).toThrow('Invalid conversation directory')
+    expect(store.load(c.id)).toBeNull()
+    expect(store.list()).toEqual([])
+    expect(fs.readdirSync(outside)).toEqual([])
+  })
   it('generates compact titles from the first user message', () => {
     expect(conversationTitle([{ role: 'user', content: '  Hello\n world  ' }])).toBe('Hello world')
     expect(conversationTitle([{ role: 'user', content: 'x'.repeat(100) }])).toHaveLength(80)
