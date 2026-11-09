@@ -20,13 +20,13 @@ export interface ToolChatEvent {
 }
 export interface ToolChatResult { messages: ToolMessage[]; content: string; reasoning: string; error?: string; completionTokens?: number; elapsedMs: number }
 export interface ToolPreferences { enabled: boolean; enabledTools: Record<string, boolean>; maxRounds: number; timeoutMs: number }
-export const DEFAULT_TOOL_PREFERENCES: ToolPreferences = { enabled: false, enabledTools: { calculator: true }, maxRounds: 3, timeoutMs: 10000 }
+export const DEFAULT_TOOL_PREFERENCES: ToolPreferences = { enabled: false, enabledTools: {}, maxRounds: 3, timeoutMs: 10000 }
 export function toolPreferences(value: unknown): ToolPreferences {
   const v = value && typeof value === 'object' ? value as Partial<ToolPreferences> : {}
   return {
     enabled: v.enabled === true,
     enabledTools: v.enabledTools && typeof v.enabledTools === 'object' && !Array.isArray(v.enabledTools)
-      ? Object.fromEntries(Object.entries(v.enabledTools).filter(([k, x]) => /^[a-z][a-z0-9_]{0,63}$/.test(k) && typeof x === 'boolean')) : { calculator: true },
+      ? Object.fromEntries(Object.entries(v.enabledTools).filter(([k, x]) => k !== 'calculator' && /^[a-z][a-z0-9_]{0,63}$/.test(k) && typeof x === 'boolean')) : {},
     maxRounds: Number.isInteger(v.maxRounds) ? Math.max(1, Math.min(8, v.maxRounds!)) : 3,
     timeoutMs: Number.isInteger(v.timeoutMs) ? Math.max(100, Math.min(30000, v.timeoutMs!)) : 10000,
   }

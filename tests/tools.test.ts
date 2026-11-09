@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
-import { createToolRegistry, ToolRegistry } from '../src/main/tools'
+import { createToolRegistry as createProductionRegistry, ToolRegistry } from '../src/main/tools'
+import { createTestToolRegistry as createToolRegistry } from './fixtures/tool-registry'
 import { ToolCallAssembler, toolPreferences, supportsStructuredTools, type ToolCall } from '../src/shared/tools'
-const call = (name = 'calculator', args = '{"operation":"add","a":2,"b":3}'): ToolCall => ({ id: 'call_1', type: 'function', function: { name, arguments: args } })
+const call = (name = 'test_arithmetic', args = '{"operation":"add","a":2,"b":3}'): ToolCall => ({ id: 'call_1', type: 'function', function: { name, arguments: args } })
 const signal = () => new AbortController().signal
 const registryWith = (execute: (args: Record<string, unknown>, signal: AbortSignal) => Promise<unknown>) => {
   const registry = new ToolRegistry()
@@ -9,19 +10,24 @@ const registryWith = (execute: (args: Record<string, unknown>, signal: AbortSign
   return registry
 }
 describe('ToolRegistry', () => {
+  it('ships only the registered web extension and rejects legacy demo calls', async () => {
+    const registry = createProductionRegistry()
+    expect(registry.definitions().map((tool) => tool.function.name)).toEqual(['web_search'])
+    expect((await registry.execute({ ...call(), function: { name: 'calculator', arguments: '{}' } }, { calculator: true }, 1000, signal())).ok).toBe(false)
+  })
   it('calculates through the registered schema and returns structured data', async () => {
     const registry = createToolRegistry()
-    expect(registry.definitions({ calculator: true })).toHaveLength(1)
+    expect(registry.definitions({ test_arithmetic: true })).toHaveLength(1)
     expect(registry.definitions({})).toHaveLength(0)
-    expect(await registry.execute(call(), { calculator: true }, 1000, signal())).toEqual({ ok: true, data: { value: 5 } })
+    expect(await registry.execute(call(), { test_arithmetic: true }, 1000, signal())).toEqual({ ok: true, data: { value: 5 } })
   })
   it('rejects unknown, disabled and invalid calls without executing code', async () => {
     const registry = createToolRegistry()
-    for (const bad of [call('shell'), call('calculator', 'not json'), call('calculator', '{"operation":"eval","a":2,"b":3}'), call('calculator', '{"operation":"add","a":"2","b":3}'), call('calculator', '{"operation":"add","a":2,"b":3,"command":"rm"}')]) {
-      expect((await registry.execute(bad, { calculator: true }, 1000, signal())).ok).toBe(false)
+    for (const bad of [call('shell'), call('test_arithmetic', 'not json'), call('test_arithmetic', '{"operation":"eval","a":2,"b":3}'), call('test_arithmetic', '{"operation":"add","a":"2","b":3}'), call('test_arithmetic', '{"operation":"add","a":2,"b":3,"command":"rm"}')]) {
+      expect((await registry.execute(bad, { test_arithmetic: true }, 1000, signal())).ok).toBe(false)
     }
     expect((await registry.execute(call(), {}, 1000, signal())).error).toContain('disabled')
-    expect((await registry.execute(call('calculator', '{"operation":"divide","a":1,"b":0}'), { calculator: true }, 1000, signal())).error).toContain('Division by zero')
+    expect((await registry.execute(call('test_arithmetic', '{"operation":"divide","a":1,"b":0}'), { test_arithmetic: true }, 1000, signal())).error).toContain('Division by zero')
   })
   it('handles failures, output limits and duplicate registration', async () => {
     const registry = registryWith(async () => { throw new Error('failed') })
@@ -50,13 +56,13 @@ describe('ToolRegistry', () => {
 describe('ToolCallAssembler', () => {
   it('assembles interleaved names/arguments for multiple structured calls', () => {
     const a = new ToolCallAssembler()
-    a.add([{ index: 1, id: 'b', function: { name: 'calcu', arguments: '{"a":' } }, { index: 0, id: 'a', function: { name: 'calculator', arguments: '{}' } }])
-    a.add([{ index: 1, function: { name: 'lator', arguments: '2}' } }])
+    a.add([{ index: 1, id: 'b', function: { name: 'test_', arguments: '{"a":' } }, { index: 0, id: 'a', function: { name: 'test_arithmetic', arguments: '{}' } }])
+    a.add([{ index: 1, function: { name: 'arithmetic', arguments: '2}' } }])
     expect(a.finish().map((c) => c.id)).toEqual(['a', 'b'])
-    expect(a.finish()[1].function).toEqual({ name: 'calculator', arguments: '{"a":2}' })
+    expect(a.finish()[1].function).toEqual({ name: 'test_arithmetic', arguments: '{"a":2}' })
   })
   it('rejects missing identities, excessive calls and duplicate IDs', () => {
-    const a = new ToolCallAssembler(); a.add([{ index: 0, function: { name: 'calculator' } }])
+    const a = new ToolCallAssembler(); a.add([{ index: 0, function: { name: 'test_arithmetic' } }])
     expect(() => a.finish()).toThrow('Incomplete')
     expect(() => a.add([{ index: 16 }])).toThrow('index')
     const b = new ToolCallAssembler(); b.add([{ index: 0, id: 'same', function: { name: 'x' } }, { index: 1, id: 'same', function: { name: 'y' } }])

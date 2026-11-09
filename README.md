@@ -94,9 +94,9 @@ Click "▶ Launch" in the Library to load the model and switch to Chat. A progre
 
 ### Optional tool calling
 
-Tool calling is **disabled by default**. With a compatible model/template, enable **Use tools** in Chat and manage individual tools, maximum rounds and execution timeouts in **Settings → Tool calling**. Try “Use the calculator to multiply 123 by 456.” Calls, arguments and results are collapsible, and Stop cancels generation and cooperative tool execution.
+Tool calling is **disabled by default**. With a compatible model/template, enable **Use tools** in Chat and manage individual tools, maximum rounds and execution timeouts in **Settings → Tool calling**. Enable a registered tool in Settings to use it. Calls, arguments and results are collapsible, and Stop cancels generation and cooperative tool execution.
 
-Only statically registered tools run in the Electron main process after JSON Schema validation. The calculator handles basic arithmetic without evaluating code; it can be disabled. LAN clients receive no execution privileges. Web search is an additional opt-in tool on this branch; file-access tools, MCP, shell execution, history and Markdown are not included. Unsupported models are reported explicitly. See [tool-calling architecture and backend requirements](docs/TOOL_CALLING.md) for registration examples, limits, tests and future integration guidance.
+Only statically registered tools run in the Electron main process after JSON Schema validation. The calculator demo has been removed; web search is the registered tool on this branch. LAN clients receive no execution privileges. Web search is an additional opt-in tool on this branch; file-access tools, MCP, shell execution, history and Markdown are not included. Unsupported models are reported explicitly. See [tool-calling architecture and backend requirements](docs/TOOL_CALLING.md) for registration examples, limits, tests and future integration guidance.
 
 ### Optional keyless web search
 

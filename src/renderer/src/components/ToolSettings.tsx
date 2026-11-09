@@ -15,7 +15,7 @@ export function ToolSettings() {
     <p className="muted small">{L('対応するモデルとチャットテンプレートが必要です。LAN クライアントに実行権限は付与しません。', 'Requires a compatible model and chat template. LAN clients receive no execution privileges.')}</p>
     {definitions.map(({ function: tool }) => <div className="form-row" key={tool.name}>
       <label><input type="checkbox" checked={prefs.enabledTools[tool.name] === true} onChange={(e) => update({ enabledTools: { ...prefs.enabledTools, [tool.name]: e.target.checked } })} /> {tool.name}</label>
-      <span className="muted small">{tool.name === 'calculator' ? L('2 つの数の加減乗除を行います。', 'Add, subtract, multiply or divide two numbers.') : tool.name === 'web_search' ? L('DuckDuckGo/Bing で公開ウェブを検索します。検索語が外部へ送信されます。キー不要・初期値は無効です。', 'Search the public web through DuckDuckGo/Bing. Search queries leave this PC. No key required; disabled by default.') : tool.description}</span>
+      <span className="muted small">{tool.name === 'web_search' ? L('DuckDuckGo/Bing で公開ウェブを検索します。検索語が外部へ送信されます。キー不要・初期値は無効です。', 'Search the public web through DuckDuckGo/Bing. Search queries leave this PC. No key required; disabled by default.') : tool.description}</span>
     </div>)}
     <div className="form-row"><label>{L('最大実行ラウンド', 'Maximum tool rounds')} <input type="number" min={1} max={8} value={prefs.maxRounds} onChange={(e) => update({ maxRounds: Number(e.target.value) })} /></label></div>
     <div className="form-row"><label>{L('ツールの制限時間（ミリ秒）', 'Tool timeout (milliseconds)')} <input type="number" min={100} max={30000} step={100} value={prefs.timeoutMs} onChange={(e) => update({ timeoutMs: Number(e.target.value) })} /></label></div>

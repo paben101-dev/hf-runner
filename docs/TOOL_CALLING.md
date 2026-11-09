@@ -11,7 +11,7 @@ This feature is independent of conversation history, Markdown, web search, MCP, 
 5. Assistant calls and their corresponding `role: tool` result messages are appended to context. Results remain untrusted JSON data, never system/developer messages or executable code. Inference continues until an ordinary response or a limit/error.
 6. Streaming text/reasoning updates are throttled to about 40 ms. Requested/running/completed calls appear as collapsible arguments/results. Usage from participating inference rounds is accumulated when provided by the backend. Stop aborts network generation and cooperative tool handlers; incomplete batches receive cancelled results so subsequent context is well-formed.
 
-Defaults: master disabled, calculator selected, three tool-execution rounds, 10-second tool timeout. Persisted controls are clamped to 1–8 rounds and 100–30,000 ms. Sessions have a five-minute ceiling, at most 16 calls per round, 64-KiB argument/result limits, and bounded stream/context sizes. Calls execute sequentially, preserving order. Model stop/change, window destruction or changing tool preferences cancels a session.
+Defaults: master disabled, no tools selected, three tool-execution rounds, 10-second tool timeout. Persisted controls are clamped to 1–8 rounds and 100–30,000 ms. Sessions have a five-minute ceiling, at most 16 calls per round, 64-KiB argument/result limits, and bounded stream/context sizes. Calls execute sequentially, preserving order. Model stop/change, window destruction or changing tool preferences cancels a session.
 
 The schema and handler are trusted application code, not supplied by models or IPC. Asynchronous handlers must honor AbortSignal. Timeouts stop waiting and signal cancellation; they cannot forcibly undo side effects or interrupt synchronous CPU-bound JavaScript. Future expensive/uncooperative handlers should use an isolated worker. There is no shell/eval execution or generic filesystem/network tool.
 
@@ -54,7 +54,7 @@ References for the tokenizer-owned API: [Transformers tokenizer implementation](
 
 ## Demonstration and validation
 
-Enable **Use tools** in Chat (or Settings → Tool calling), keep **calculator** selected, and ask: “Use the calculator to multiply 123 by 456, then explain the result.” Expand the call to inspect its validated arguments and `{ "ok": true, "data": { "value": 56088 } }` result. The calculator supports add, subtract, multiply and divide; division by zero is a structured error. It does not evaluate expressions or JavaScript.
+This foundation branch ships an empty registry. Extension branches register actual tools; enable those in Settings → Tool calling and inspect their arguments/results in the chat activity. Legacy calculator preferences are discarded when loading/updating settings. The former calculator demo is removed from the application. Arithmetic handlers exist only as automated test fixtures.
 
 Tests cover registry/schema behavior, unknown/disabled tools, handler failures, output size, timeouts, cancellation, interleaved deltas, multiple calls, round limits, truncated streams, normal chat with tools disabled, capability rejection, persisted opt-in settings, reasoning/context preservation, and an actual loopback HTTP calculator round trip. `tests/tool-python.test.ts` runs six standard-library Python tests without torch/models; Python 3 must be installed to run the full suite.
 
@@ -66,7 +66,7 @@ Register a separate, disabled-by-default tool with a bounded query schema and re
 
 ## 日本語
 
-ツール呼び出しは標準で無効です。「チャット → ツールを使用」または「設定 → ツール呼び出し」で有効にし、ツールごとのチェックボックスとラウンド数・制限時間を設定します。電卓には加減乗除を指定でき、例えば「calculator を使って 123 × 456 を計算して」と依頼してください。呼び出しの引数と結果は折りたたみ表示され、「停止」で生成と協調的な処理を中断できます。
+ツール呼び出しは標準で無効です。「チャット → ツールを使用」または「設定 → ツール呼び出し」で有効にし、ツールごとのチェックボックスとラウンド数・制限時間を設定します。この基盤ブランチには実行可能なデモツールを含みません。拡張ブランチで登録したツールを使用してください。呼び出しの引数と結果は折りたたみ表示され、「停止」で生成と協調的な処理を中断できます。
 
 実行は Electron メインプロセス内の登録済みハンドラーのみです。JSON Schema で引数を検証し、ツールの結果を権限の高い指示として扱いません。LAN クライアントに実行権限は付与せず、シェル実行、汎用ファイル操作、MCP は含みません。このブランチの検索拡張は [WEB_SEARCH.md](WEB_SEARCH.md) を参照してください。将来のツールは `createToolRegistry()` でスキーマと非同期ハンドラーを登録し、AbortSignal とサイズ制限を守ってください。
 
