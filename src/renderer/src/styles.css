@@ -266,3 +266,8 @@ pre.code { background: #0b0e12; border: 1px solid var(--border); border-radius: 
 .load-progress .progress { height: 8px; }
 .load-pct { font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; min-width: 38px; }
 .chat-loading { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 14px; }
+
+.tool-chat-controls { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.tool-activity { margin: 8px 0; padding: 8px 12px; border: 1px solid var(--border); border-radius: 6px; }
+.tool-activity summary { cursor: pointer; color: var(--accent); }
+.tool-activity .pre { margin-top: 8px; max-height: 240px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }

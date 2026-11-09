@@ -8,6 +8,7 @@ import { L, type LanguageSetting } from '@shared/i18n'
 import { api, errMsg, openExternal } from '../api'
 import { Section, useApp } from '../App'
 import { ProgressBar } from '../components/ProgressBar'
+import { ToolSettings } from '../components/ToolSettings'
 import { ServerModeSettings } from '../components/ServerModeSettings'
 
 const CTX_OPTIONS = [2048, 4096, 8192, 16384, 32768, 65536, 131072]
@@ -206,6 +207,8 @@ export function SettingsPage() {
           </div>
         </div>
       </Section>
+
+      <ToolSettings />
 
       <Section title={L('推論エンジン 1: llama.cpp (GGUF 用)', 'Inference engine 1: llama.cpp (for GGUF)')}>
         <div className="form-row">

@@ -12,6 +12,12 @@ const on = <T extends unknown[]>(channel: string, cb: (...args: T) => void) => {
 }
 
 const api: Api = {
+  tools: {
+    list: () => invoke('tools:list'),
+    start: (request) => invoke('tools:start', request),
+    cancel: (id) => invoke('tools:cancel', id),
+    onEvent: (cb) => on('tools:event', cb),
+  },
   boot: {
     progress: (p) => ipcRenderer.send('boot:progress', p),
     done: () => ipcRenderer.send('boot:done'),

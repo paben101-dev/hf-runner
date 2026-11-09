@@ -1,0 +1,55 @@
+name: Windows test build
+run-name: Tool calling test build · ${{ github.ref_name }} · ${{ github.sha }}
+on:
+  workflow_dispatch:
+  push:
+    branches: [feat/tool-calling]
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: npm ci
+      - run: node node_modules/electron/install.js
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run dist:win
+      - name: Name packages
+        id: packages
+        shell: pwsh
+        env:
+          REPO_NAME: ${{ github.event.repository.name }}
+          BRANCH_NAME: ${{ github.ref_name }}
+        run: |
+          $repo = $env:REPO_NAME -replace '[^A-Za-z0-9._-]', '-'
+          $branch = $env:BRANCH_NAME -replace '[^A-Za-z0-9._-]', '-'
+          "prefix=$repo-$branch" >> $env:GITHUB_OUTPUT
+          "sha=$($env:GITHUB_SHA.Substring(0, 7))" >> $env:GITHUB_OUTPUT
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.packages.outputs.prefix }}-installer-${{ steps.packages.outputs.sha }}
+          path: dist/HF-Runner-*-win-x64.exe
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+      - name: Upload portable package
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.packages.outputs.prefix }}-portable-${{ steps.packages.outputs.sha }}
+          path: dist/HF-Runner-*-win-x64.zip
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0

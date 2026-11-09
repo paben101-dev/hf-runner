@@ -92,6 +92,12 @@ Click "▶ Launch" in the Library to load the model and switch to Chat. A progre
 - When you're done, click "⏏ Unload" to free the memory
 - Each engine's launch command can be edited under "Launch command" in Settings (e.g. add `-ctk q8_0 -ctv q8_0` to llama.cpp, or change `-c {ctx}` to `-c 8192`). Placeholders such as `{model}` and `{port}` are replaced with the model path, port, etc. on each launch. "Restore default" reverts it at any time
 
+### Optional tool calling
+
+Tool calling is **disabled by default**. With a compatible model/template, enable **Use tools** in Chat and manage individual tools, maximum rounds and execution timeouts in **Settings → Tool calling**. Try “Use the calculator to multiply 123 by 456.” Calls, arguments and results are collapsible, and Stop cancels generation and cooperative tool execution.
+
+Only statically registered tools run in the Electron main process after JSON Schema validation. The calculator handles basic arithmetic without evaluating code; it can be disabled. LAN clients receive no execution privileges. No web search, file-access tools, MCP, shell execution, history or Markdown features are included in this branch. Unsupported models are reported explicitly. See [tool-calling architecture and backend requirements](docs/TOOL_CALLING.md) for registration examples, limits, tests and future integration guidance.
+
 ### 4. Image generation
 
 Install stable-diffusion.cpp, then search with "Image generation" checked (e.g. `stable-diffusion-v1-5`, `FLUX.1-schnell`). After downloading, launch the model on the "Image generation" page, enter a prompt and click "Generate".

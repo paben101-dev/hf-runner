@@ -24,6 +24,7 @@ export interface Settings {
   /** 0 = 自動 */
   threads: number
   serverPort: number
+  tools: import('./tools').ToolPreferences
   systemPrompt: string
   temperature: number
   maxTokens: number
@@ -560,6 +561,12 @@ export interface BootProgress {
 
 /** preload が window.api として公開する API */
 export interface Api {
+  tools: {
+    list(): Promise<import('./tools').ToolDefinition[]>
+    start(request: { id: string; modelId: string; messages: import('./tools').ToolMessage[] }): Promise<import('./tools').ToolChatResult>
+    cancel(id: string): Promise<void>
+    onEvent(cb: (event: import('./tools').ToolChatEvent) => void): Unsubscribe
+  }
   boot: {
     /** 初期化の進捗をスプラッシュへ通知する */
     progress(p: BootProgress): void

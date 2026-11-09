@@ -3,10 +3,13 @@ import { formatCount } from '@shared/format'
 import { L } from '@shared/i18n'
 import { limitNotice, THINKING_MODES, thinkingParams, type ThinkingMode } from '@shared/thinking'
 import { MAX_MAX_TOKENS, MAX_TOKEN_STOPS, MIN_MAX_TOKENS, nearestStopIndex, parseMaxTokens } from '@shared/tokens'
+import { api } from '../api'
+import { DEFAULT_TOOL_PREFERENCES, type ToolMessage, type ToolActivity } from '@shared/tools'
 import { useApp } from '../App'
 import { LoadProgressView } from '../components/LoadProgress'
 
 interface Message {
+  activities?: ToolActivity[]
   role: 'user' | 'assistant'
   content: string
   /** 添付画像 (data URL) */
@@ -54,6 +57,9 @@ function toApiContent(m: Message): string | Array<Record<string, unknown>> {
 
 export function ChatPage() {
   const app = useApp()
+  const contextRef = useRef<ToolMessage[] | null>(null)
+  const sessionRef = useRef<string | null>(null)
+  const sendingRef = useRef(false)
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [pending, setPending] = useState<string[]>([])
@@ -73,6 +79,10 @@ export function ChatPage() {
   // モデルが変わったら添付をクリア(画像非対応モデルに送らないため)
   useEffect(() => {
     setPending([])
+    if (contextRef.current || sessionRef.current) setMessages([])
+    contextRef.current = null
+    if (sessionRef.current) void api.tools.cancel(sessionRef.current)
+    sessionRef.current = null
   }, [s.modelId])
 
   const addFiles = async (files: Iterable<File>) => {
@@ -110,7 +120,8 @@ export function ChatPage() {
 
   const send = async () => {
     const text = input.trim()
-    if ((!text && pending.length === 0) || !ready || streaming) return
+    if ((!text && pending.length === 0) || !ready || streaming || sendingRef.current) return
+    sendingRef.current = true
     setInput('')
     const images = pending
     setPending([])
@@ -119,6 +130,46 @@ export function ChatPage() {
     setStreaming(true)
     const controller = new AbortController()
     abortRef.current = controller
+    if (app.settings?.tools?.enabled || contextRef.current) {
+      const id = crypto.randomUUID()
+      sessionRef.current = id
+      const context: ToolMessage[] = [...(contextRef.current ?? messages.map((m) => ({ role: m.role, content: toApiContent(m) }))), { role: 'user', content: toApiContent(history[history.length - 1]) }]
+      const activities = new Map<string, ToolActivity>()
+      let content = '', reasoning = ''
+      let stats: string | undefined
+      let reasoningStartedAt: number | undefined
+      const update = (done = false) => { if (sessionRef.current !== id) return; setMessages([...history, { role: 'assistant', content, reasoning: reasoning || undefined, thinking: !done && !content, stats, reasoningStartedAt, reasoningMs: reasoningStartedAt ? Date.now() - reasoningStartedAt : undefined, activities: [...activities.values()] }]) }
+      const off = api.tools.onEvent((event) => {
+        if (event.id !== id) return
+        if (event.content !== undefined) content = event.content
+        if (event.reasoning !== undefined) { reasoning = event.reasoning; if (reasoning) reasoningStartedAt ??= Date.now() }
+        if (event.activity) activities.set(event.activity.call.id, event.activity)
+        update()
+      })
+      const cancel = () => { void api.tools.cancel(id) }
+      controller.signal.addEventListener('abort', cancel, { once: true })
+      try {
+        const result = await api.tools.start({ id, modelId: s.modelId!, messages: context })
+        if (sessionRef.current === id) contextRef.current = result.messages
+        content = result.content
+        reasoning = result.reasoning
+        const seconds = (result.elapsedMs / 1000).toFixed(1)
+        stats = result.completionTokens !== undefined ? L(`${result.completionTokens} トークン · ${seconds} 秒`, `${result.completionTokens} tokens · ${seconds}s`) : L(`${seconds} 秒`, `${seconds}s`)
+        if (result.error) content += `\n\n⚠ ${result.error}`
+      } catch (e) {
+        content += controller.signal.aborted ? L('\n\n(停止しました)', '\n\n(Stopped)') : `\n\n⚠ ${e instanceof Error ? e.message : String(e)}`
+        if (sessionRef.current === id) contextRef.current = [...context, { role: 'assistant', content }]
+      } finally {
+        update(true)
+        off()
+        controller.signal.removeEventListener('abort', cancel)
+        abortRef.current = null
+        sessionRef.current = null
+        sendingRef.current = false
+        setStreaming(false)
+      }
+      return
+    }
     const t0 = performance.now()
     let content = ''
     let reasoning = ''
@@ -225,6 +276,7 @@ export function ChatPage() {
         return next
       })
     } finally {
+      sendingRef.current = false
       setStreaming(false)
       abortRef.current = null
     }
@@ -257,7 +309,7 @@ export function ChatPage() {
           <button className="ghost small" onClick={() => setShowParams((v) => !v)}>
             {showParams ? L('パラメータを隠す', 'Hide parameters') : L('パラメータ', 'Parameters')}
           </button>
-          <button className="ghost small" onClick={() => setMessages([])} disabled={streaming || messages.length === 0}>
+          <button className="ghost small" onClick={() => { contextRef.current = null; setMessages([]) }} disabled={streaming || messages.length === 0}>
             {L('会話をクリア', 'Clear chat')}
           </button>
           {!ready && s.state !== 'starting' && (
@@ -273,6 +325,12 @@ export function ChatPage() {
           <LoadProgressView progress={s.progress} />
         </div>
       )}
+
+      <div className="tool-chat-controls">
+        <label><input type="checkbox" checked={app.settings?.tools?.enabled ?? false} disabled={streaming}
+          onChange={(e) => app.updateSettings({ tools: { ...(app.settings?.tools ?? DEFAULT_TOOL_PREFERENCES), enabled: e.target.checked } })} /> {L('ツールを使用', 'Use tools')}</label>
+        <span className="muted small">{L('対応モデル・テンプレートが必要です。設定でツールを管理できます。', 'Requires a compatible model/template. Manage tools in Settings.')}</span>
+      </div>
 
       {showParams && app.settings && (
         <div className="params">
@@ -352,6 +410,11 @@ export function ChatPage() {
                 ))}
               </div>
             )}
+            {m.activities?.map((activity) => <details className="tool-activity" key={activity.call.id}>
+              <summary>{activity.call.function.name} · {activity.state === 'running' ? L('実行中…', 'Executing…') : activity.state === 'requested' ? L('要求', 'Requested') : activity.result?.ok ? L('完了', 'Done') : L('エラー', 'Error')}</summary>
+              <div className="pre">{activity.call.function.arguments}</div>
+              {activity.result && <div className="pre">{JSON.stringify(activity.result, null, 2)}</div>}
+            </details>)}
             <MessageBody text={m.content} />
             {m.notice && <div className="notice small warn msg-notice">⚠ {m.notice}</div>}
             {m.stats && <div className="msg-stats muted small">{m.stats}</div>}
