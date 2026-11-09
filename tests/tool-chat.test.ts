@@ -2,15 +2,15 @@ import { createServer } from 'node:http'
 import { once } from 'node:events'
 import { describe, expect, it, vi } from 'vitest'
 import { runToolChat, readCompletion } from '../src/main/tool-chat'
-import { createToolRegistry } from '../src/main/tools'
+import { createTestToolRegistry as createToolRegistry } from './fixtures/tool-registry'
 import { toolPreferences, type ToolChatEvent } from '../src/shared/tools'
 const sse = (deltas: object[], finish = 'stop', crlf = false) => {
   const text = [...deltas.map((delta) => JSON.stringify({ choices: [{ delta }] })), JSON.stringify({ choices: [{ delta: {}, finish_reason: finish }] }), '[DONE]'].map((s) => `data: ${s}\n\n`).join('')
   const bytes = new TextEncoder().encode(crlf ? text.replace(/\n/g, '\r\n') : text)
   return new Response(new ReadableStream({ start(controller) { for (let i = 0; i < bytes.length; i += 3) controller.enqueue(bytes.slice(i, i + 3)); controller.close() } }))
 }
-const calls = (count = 1) => Array.from({ length: count }, (_, index) => ({ index, id: `call_${index}`, type: 'function', function: { name: 'calculator', arguments: '{"operation":"multiply","a":6,"b":7}' } }))
-const run = (request: typeof fetch, prefs = toolPreferences({ enabled: true, enabledTools: { calculator: true } }), signal = new AbortController().signal, emit = (_e: ToolChatEvent) => {}) => runToolChat({ id: 'session', url: 'http://127.0.0.1:18080/v1/chat/completions', messages: [{ role: 'user', content: 'calculate' }], parameters: { temperature: 0 }, preferences: prefs, registry: createToolRegistry(), signal, emit, request })
+const calls = (count = 1) => Array.from({ length: count }, (_, index) => ({ index, id: `call_${index}`, type: 'function', function: { name: 'test_arithmetic', arguments: '{"operation":"multiply","a":6,"b":7}' } }))
+const run = (request: typeof fetch, prefs = toolPreferences({ enabled: true, enabledTools: { test_arithmetic: true } }), signal = new AbortController().signal, emit = (_e: ToolChatEvent) => {}) => runToolChat({ id: 'session', url: 'http://127.0.0.1:18080/v1/chat/completions', messages: [{ role: 'user', content: 'calculate' }], parameters: { temperature: 0 }, preferences: prefs, registry: createToolRegistry(), signal, emit, request })
 describe('tool inference loop', () => {
   it('streams single/multiple tool calls, appends tool-role results and continues inference', async () => {
     for (const count of [1, 2]) {
@@ -35,14 +35,14 @@ describe('tool inference loop', () => {
   })
   it('enforces the round limit without executing an extra round', async () => {
     const request = vi.fn().mockImplementation(async () => sse([{ tool_calls: [{ ...calls()[0], id: `id_${request.mock.calls.length}` }] }], 'tool_calls'))
-    const result = await run(request, toolPreferences({ enabled: true, enabledTools: { calculator: true }, maxRounds: 1 }))
+    const result = await run(request, toolPreferences({ enabled: true, enabledTools: { test_arithmetic: true }, maxRounds: 1 }))
     expect(result.error).toContain('Maximum')
     expect(result.messages.filter((m) => m.role === 'tool')).toHaveLength(1)
   })
   it('never treats prose as tool calls and omits tool definitions when disabled', async () => {
-    const request = vi.fn().mockResolvedValue(sse([{ content: 'calculator({a:1})' }]))
+    const request = vi.fn().mockResolvedValue(sse([{ content: 'test_arithmetic({a:1})' }]))
     const result = await run(request, toolPreferences(undefined))
-    expect(result.content).toBe('calculator({a:1})')
+    expect(result.content).toBe('test_arithmetic({a:1})')
     expect(JSON.parse(request.mock.calls[0][1].body).tools).toBeUndefined()
   })
   it('rejects truncated calls and protocol failures before execution', async () => {
@@ -53,7 +53,7 @@ describe('tool inference loop', () => {
     expect(http.error).toContain('Unsupported model')
     await expect(readCompletion(new Response('data: {"choices":[]}\n\n'), new AbortController().signal, () => {})).rejects.toThrow('finish reason')
   })
-  it('runs the calculator end-to-end against a local streaming HTTP backend', async () => {
+  it('runs the test_arithmetic end-to-end against a local streaming HTTP backend', async () => {
     let requests = 0
     const server = createServer(async (req, res) => {
       let body = ''
@@ -69,7 +69,7 @@ describe('tool inference loop', () => {
     await once(server, 'listening')
     try {
       const address = server.address() as { port: number }
-      const result = await runToolChat({ id: 'http-session', url: `http://127.0.0.1:${address.port}/v1/chat/completions`, messages: [{ role: 'user', content: '6 times 7' }], parameters: {}, preferences: toolPreferences({ enabled: true, enabledTools: { calculator: true } }), registry: createToolRegistry(), signal: new AbortController().signal, emit: () => {} })
+      const result = await runToolChat({ id: 'http-session', url: `http://127.0.0.1:${address.port}/v1/chat/completions`, messages: [{ role: 'user', content: '6 times 7' }], parameters: {}, preferences: toolPreferences({ enabled: true, enabledTools: { test_arithmetic: true } }), registry: createToolRegistry(), signal: new AbortController().signal, emit: () => {} })
       expect(result.error).toBeUndefined()
       expect(result.content).toBe('The result is 42')
       expect(requests).toBe(2)
