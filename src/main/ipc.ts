@@ -1,3 +1,7 @@
+import { createToolRegistry } from './tools'
+import { runToolChat } from './tool-chat'
+import { toolPreferences, supportsStructuredTools, type ToolMessage } from '@shared/tools'
+import { thinkingParams } from '@shared/thinking'
 import { ConversationStore } from './conversations'
 import type { Conversation } from '@shared/conversations'
 import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron'
@@ -85,9 +89,52 @@ export function registerIpc(ctx: IpcContext): void {
     return true
   })
 
+  // Tools are reachable only through the owning desktop window, never the LAN gateway.
+  const registry = createToolRegistry()
+  const sessions = new Map<string, { controller: AbortController; modelId: string }>()
+  ipcMain.handle('tools:list', () => registry.definitions())
+  ipcMain.handle('tools:cancel', (event, id: string) => {
+    if (getWindow()?.webContents === event.sender && event.senderFrame === event.sender.mainFrame) sessions.get(id)?.controller.abort()
+  })
+  server.on('status', (status) => {
+    for (const session of sessions.values()) if (status.state !== 'running' || status.modelId !== session.modelId) session.controller.abort()
+  })
+  ipcMain.handle('tools:start', async (event, request: { id: string; modelId: string; messages: ToolMessage[] }) => {
+    if (getWindow()?.webContents !== event.sender || event.senderFrame !== event.sender.mainFrame) throw new Error('Desktop tools are not available to this sender')
+    if (!request || !/^[a-f0-9-]{36}$/.test(request.id) || sessions.size) throw new Error('Invalid or busy tool session')
+    const status = server.getStatus()
+    if (status.state !== 'running' || !status.port || status.engine === 'sdcpp' || status.modelId !== request.modelId) throw new Error('Chat model changed or is not running')
+    if (!Array.isArray(request.messages) || request.messages.length > 256 || JSON.stringify(request.messages).length > 8 * 1024 * 1024) throw new Error('Chat context is too large')
+    if (request.messages.some((m) => !m || !['user', 'assistant', 'tool'].includes(m.role))) throw new Error('Invalid chat roles')
+    const controller = new AbortController()
+    const onDestroyed = () => controller.abort()
+    event.sender.once('destroyed', onDestroyed)
+    sessions.set(request.id, { controller, modelId: request.modelId })
+    const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(5 * 60 * 1000)])
+    try {
+      const settingsNow = settings.get()
+      const preferences = toolPreferences(settingsNow.tools)
+      if (preferences.enabled && registry.definitions(preferences.enabledTools).length) {
+        const response = await fetch(`http://127.0.0.1:${status.port}/props`, { signal: AbortSignal.any([signal, AbortSignal.timeout(3000)]) })
+        const props = await response.json() as { tool_calling?: boolean; chat_template_caps?: { supports_tool_calls?: boolean } }
+        const supported = response.ok && supportsStructuredTools(status.engine, props)
+        if (!supported) throw new Error(L('このモデルまたはサーバーは構造化ツール呼び出しをサポートしていません。ツールを無効にするか、対応するモデル・テンプレートを使用してください。', 'This model/server does not advertise structured tool calling. Disable tools or use a compatible model and template.'))
+      }
+      const system = settingsNow.systemPrompt.trim()
+      const result = await runToolChat({ id: request.id, registry, preferences, signal,
+        url: `http://127.0.0.1:${status.port}/v1/chat/completions`,
+        messages: [...(system ? [{ role: 'system' as const, content: system }] : []), ...request.messages],
+        parameters: { temperature: settingsNow.temperature, max_tokens: settingsNow.maxTokens, ...thinkingParams(settingsNow.thinkingMode) },
+        emit: (update) => { if (!event.sender.isDestroyed()) event.sender.send('tools:event', update) },
+      })
+      return { ...result, messages: result.messages.filter((m) => m.role !== 'system') }
+    } finally { sessions.delete(request.id); event.sender.removeListener('destroyed', onDestroyed) }
+  })
+
   // 設定
   ipcMain.handle('settings:get', () => settings.get())
   ipcMain.handle('settings:set', async (_e, patch: Partial<Settings>) => {
+    if (patch.tools !== undefined) for (const session of sessions.values()) session.controller.abort()
     const before = settings.get()
     settings.update(patch)
     if (before.modelsDir !== settings.get().modelsDir) library.emit('change')

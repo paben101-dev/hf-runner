@@ -180,3 +180,7 @@ E2E は `HFRUNNER_E2E_LAN=1` でサーバーモードとトレイ常駐を設定
 本体だけのモデルは、系統ごとのカタログ(`COMPONENT_CATALOG`)から VAE とテキストエンコーダーを取得し、`--diffusion-model` + `--vae` / `--clip_l` / `--t5xxl` / `--llm` で起動します。T5-XXL は GGUF 量子化版を既定にしています(fp8 の safetensors は stable-diffusion.cpp の CPU 計算で落ちるため)。stable-diffusion.cpp が読めない dtype(MLX の U32 パック、NVFP4 の U8 重み)は「非対応の形式」として起動を止めます。
 
 生成は `POST /sdcpp/v1/img_gen` でジョブを投入して `/sdcpp/v1/jobs/{id}` をポーリングし、ステップ進捗はサーバーログの `|====| n/m - X.XXs/it` から拾います。生成画像は独自プロトコル `hfimg://images/<名前>` でレンダラーに渡します。
+
+## ツール呼び出しの拡張
+
+[ツール呼び出し設計](TOOL_CALLING.md)を参照してください。`src/main/tools.ts` のレジストリに JSON Schema と非同期ハンドラーを登録します。実行はメインプロセスのみで、将来のツールは初期状態では無効です。テストには Node.js に加えて Python 3 が必要です。既存の推論エンジンや LAN ゲートウェイに実行機能を追加しないでください。

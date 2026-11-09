@@ -1,3 +1,5 @@
+import { DEFAULT_TOOL_PREFERENCES, type ToolMessage, type ToolActivity } from '@shared/tools'
+import { toToolContext, toolActivities } from '@shared/tool-history'
 import { useEffect, useRef, useState, type DragEvent, type ClipboardEvent } from 'react'
 import { formatCount } from '@shared/format'
 import { getLang, L } from '@shared/i18n'
@@ -48,6 +50,7 @@ export function ChatPage() {
   const pendingSave = useRef<Conversation | null>(null)
   const [busy, setBusy] = useState(true)
   const operation = useRef(false)
+  const sessionRef = useRef<string | null>(null)
   const [rename, setRename] = useState<Conversation | null>(null)
   const [title, setTitle] = useState('')
   const composerRef = useRef<HTMLTextAreaElement>(null)
@@ -203,6 +206,56 @@ export function ChatPage() {
     setStreaming(true)
     const controller = new AbortController()
     abortRef.current = controller
+    if (app.settings?.tools?.enabled || messages.some((m) => m.toolMessages?.length)) {
+      const id = crypto.randomUUID()
+      sessionRef.current = id
+      let context: ToolMessage[] = []
+      const activities = new Map<string, ToolActivity>()
+      let content = '', reasoning = ''
+      let stats: string | undefined
+      let toolMessages: ToolMessage[] | undefined
+      let started = false
+      let reasoningStartedAt: number | undefined
+      const update = (done = false) => { if (sessionRef.current !== id) return; setMessages([...history, { role: 'assistant', content, reasoning: reasoning || undefined, thinking: !done && !content, stats, reasoningStartedAt, reasoningMs: reasoningStartedAt ? Date.now() - reasoningStartedAt : undefined, activities: [...activities.values()], toolMessages }]) }
+      const off = api.tools.onEvent((event) => {
+        if (event.id !== id) return
+        if (event.content !== undefined) content = event.content
+        if (event.reasoning !== undefined) { reasoning = event.reasoning; if (reasoning) reasoningStartedAt ??= Date.now() }
+        if (event.activity) activities.set(event.activity.call.id, event.activity)
+        update()
+      })
+      const cancel = () => { void api.tools.cancel(id) }
+      controller.signal.addEventListener('abort', cancel, { once: true })
+      try {
+        context = toToolContext(history)
+        await persist(conversation, history)
+        controller.signal.throwIfAborted()
+        started = true
+        const result = await api.tools.start({ id, modelId: s.modelId!, messages: context })
+        if (sessionRef.current === id) toolMessages = result.messages.slice(context.length)
+        content = result.content
+        reasoning = result.reasoning
+        const seconds = (result.elapsedMs / 1000).toFixed(1)
+        stats = result.completionTokens !== undefined ? L(`${result.completionTokens} トークン · ${seconds} 秒`, `${result.completionTokens} tokens · ${seconds}s`) : L(`${seconds} 秒`, `${seconds}s`)
+        if (result.error) content += `\n\n⚠ ${result.error}`
+      } catch (e) {
+        if (!started && !controller.signal.aborted) report(e)
+        content += controller.signal.aborted ? L('\n\n(停止しました)', '\n\n(Stopped)') : `\n\n⚠ ${e instanceof Error ? e.message : String(e)}`
+
+      } finally {
+        if (started) {
+          update(true)
+          await persist(conversation, [...history, { role: 'assistant', content, reasoning: reasoning || undefined, stats, toolMessages }]).catch(report)
+        } else { setMessages(history) }
+        off()
+        controller.signal.removeEventListener('abort', cancel)
+        abortRef.current = null
+        sessionRef.current = null
+        operation.current = false
+        setStreaming(false)
+      }
+      return
+    }
     const t0 = performance.now()
     let content = ''
     let reasoning = ''
@@ -373,6 +426,12 @@ export function ChatPage() {
         </div>
       )}
 
+      <div className="tool-chat-controls">
+        <label><input type="checkbox" checked={app.settings?.tools?.enabled ?? false} disabled={streaming}
+          onChange={(e) => app.updateSettings({ tools: { ...(app.settings?.tools ?? DEFAULT_TOOL_PREFERENCES), enabled: e.target.checked } })} /> {L('ツールを使用', 'Use tools')}</label>
+        <span className="muted small">{L('対応モデル・テンプレートが必要です。設定でツールを管理できます。', 'Requires a compatible model/template. Manage tools in Settings.')}</span>
+      </div>
+
       {showParams && app.settings && (
         <div className="params">
           <label>
@@ -451,6 +510,11 @@ export function ChatPage() {
                 ))}
               </div>
             )}
+            {(m.activities ?? toolActivities(m.toolMessages)).map((activity) => <details className="tool-activity" key={activity.call.id}>
+              <summary>{activity.call.function.name} · {activity.state === 'running' ? L('実行中…', 'Executing…') : activity.state === 'requested' ? L('要求', 'Requested') : activity.result?.ok ? L('完了', 'Done') : L('エラー', 'Error')}</summary>
+              <div className="pre">{activity.call.function.arguments}</div>
+              {activity.result && <div className="pre">{JSON.stringify(activity.result, null, 2)}</div>}
+            </details>)}
             <MessageBody text={m.content} markdown={app.settings?.renderMarkdown ?? true} language={getLang()} />
             {m.notice && <div className="notice small warn msg-notice">⚠ {m.notice}</div>}
             {m.stats && <div className="msg-stats muted small">{m.stats}</div>}

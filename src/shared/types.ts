@@ -26,6 +26,7 @@ export interface Settings {
   serverPort: number
   /** Presentation only; raw chat messages remain unchanged. */
   renderMarkdown: boolean
+  tools: import('./tools').ToolPreferences
   systemPrompt: string
   temperature: number
   maxTokens: number
@@ -562,6 +563,13 @@ export interface BootProgress {
 
 /** preload が window.api として公開する API */
 export interface Api {
+  tools: {
+    list(): Promise<import('./tools').ToolDefinition[]>
+    start(request: { id: string; modelId: string; messages: import('./tools').ToolMessage[] }): Promise<import('./tools').ToolChatResult>
+    cancel(id: string): Promise<void>
+    onEvent(cb: (event: import('./tools').ToolChatEvent) => void): Unsubscribe
+  }
+
   conversations: {
     menu(): Promise<'rename' | 'delete' | null>
     list(): Promise<import('./conversations').Conversation[]>

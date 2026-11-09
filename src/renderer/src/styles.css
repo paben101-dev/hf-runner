@@ -307,3 +307,8 @@ pre.code { background: #0b0e12; border: 1px solid var(--border); border-radius: 
 .markdown-table th, .markdown-table td { border: 1px solid var(--border); padding: 6px 10px; }
 .markdown-table th { background: var(--panel-2); }
 .markdown-body .contains-task-list { list-style: none; }
+
+.tool-chat-controls { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.tool-activity { margin: 8px 0; padding: 8px 12px; border: 1px solid var(--border); border-radius: 6px; }
+.tool-activity summary { cursor: pointer; color: var(--accent); }
+.tool-activity .pre { margin-top: 8px; max-height: 240px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }

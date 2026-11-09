@@ -13,7 +13,7 @@ import { setLang } from '../src/shared/i18n'
 
 const mock = vi.hoisted(() => ({
   app: {} as Record<string, any>,
-  api: { conversations: { list: vi.fn(), load: vi.fn(), save: vi.fn(), rename: vi.fn(), delete: vi.fn(), menu: vi.fn() } },
+  api: { tools: { onEvent: vi.fn(), start: vi.fn(), cancel: vi.fn() }, conversations: { list: vi.fn(), load: vi.fn(), save: vi.fn(), rename: vi.fn(), delete: vi.fn(), menu: vi.fn() } },
 }))
 vi.mock('../src/renderer/src/App', () => ({ useApp: () => mock.app }))
 vi.mock('../src/renderer/src/api', () => ({ api: mock.api, openExternal: vi.fn() }))
@@ -38,6 +38,8 @@ const submit = async (text: string) => {
 beforeEach(async () => {
   vi.clearAllMocks()
   stored.clear()
+  mock.api.tools.onEvent.mockImplementation(() => () => {})
+  mock.api.tools.cancel.mockResolvedValue(undefined)
   setLang('en')
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
   HTMLElement.prototype.scrollIntoView = vi.fn()
@@ -155,6 +157,78 @@ describe('chat history interactions', () => {
       expect(request.messages[1].content).toBe(raw)
       expect(new ConversationStore(dir).load(c.id)!.messages[1].content).toBe(raw)
     } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+  })
+  it('persists and restores tool protocol, activities and Markdown, and keeps context when tools are disabled', async () => {
+    mock.app.settings = { tools: { enabled: true }, renderMarkdown: true }
+    mock.api.tools.start.mockImplementation(async (request) => ({
+      messages: [...request.messages,
+        { role: 'assistant', content: null, tool_calls: [{ id: 'search_1', type: 'function', function: { name: 'web_search', arguments: '{"query":"cats"}' } }] },
+        { role: 'tool', tool_call_id: 'search_1', content: '{"ok":true,"data":{"results":[{"url":"https://example.com","snippet":"cat facts"}]}}' },
+        { role: 'assistant', content: '## Found\n\nCat facts', reasoning_content: 'checked sources' }],
+      content: '## Found\n\nCat facts', reasoning: 'checked sources', elapsedMs: 20,
+    }))
+    await mount(); await submit('search cats')
+    const saved = [...stored.values()][0]
+    expect(saved.messages[1].toolMessages).toHaveLength(3)
+    await click('New Chat'); await click('search catsModel A')
+    expect(container.querySelector('.msg.assistant h2')!.textContent).toBe('Found')
+    expect(container.querySelector('.tool-activity')!.textContent).toContain('cat facts')
+    mock.app.settings = { tools: { enabled: false }, renderMarkdown: false }
+    await mount()
+    expect(container.querySelector('.msg.assistant h2')).toBeNull()
+    expect(container.querySelector('.tool-activity')!.textContent).toContain('web_search')
+    mock.api.tools.start.mockImplementationOnce(async (request) => ({ messages: [...request.messages, { role: 'assistant', content: 'followup' }], content: 'followup', reasoning: '', elapsedMs: 1 }))
+    await submit('follow up')
+    expect(mock.api.tools.start.mock.calls[1][0].messages.map((m: {role: string}) => m.role)).toEqual(['user', 'assistant', 'tool', 'assistant', 'user'])
+    expect(stored.get(saved.id)!.messages[1].toolMessages![0].tool_calls![0].function.arguments).toBe('{"query":"cats"}')
+  })
+  it('does not launch tools if Stop is pressed while the user message is still saving', async () => {
+    mock.app.settings = { tools: { enabled: true } }
+    let release!: () => void
+    mock.api.conversations.save.mockImplementationOnce(() => new Promise<void>((resolve) => { release = resolve }))
+    await mount(); await submit('search later')
+    await click('■ Stop')
+    await settle(() => release())
+    expect(mock.api.tools.start).not.toHaveBeenCalled()
+    expect(composer().disabled).toBe(false)
+    expect(container.querySelector('.messages')!.textContent).toContain('search later')
+  })
+  it('streams tool activity with live Markdown changes, blocks switching, and persists a cancelled turn', async () => {
+    mock.app.settings = { tools: { enabled: true }, renderMarkdown: true }
+    let notify!: (event: object) => void
+    let finish!: () => void
+    const call = { id: 'stream_call', type: 'function', function: { name: 'web_search', arguments: '{"query":"streaming"}' } }
+    mock.api.tools.onEvent.mockImplementation((listener) => { notify = listener; return () => {} })
+    mock.api.tools.start.mockImplementation((request) => new Promise((resolve) => { finish = () => resolve({ messages: [...request.messages,
+      { role: 'assistant', content: null, tool_calls: [call] },
+      { role: 'tool', tool_call_id: call.id, content: '{"ok":false,"error":"Stopped"}' },
+      { role: 'assistant', content: '## Streaming' }], content: '## Streaming', reasoning: '', elapsedMs: 1, error: 'Stopped' }) }))
+    mock.api.tools.cancel.mockImplementation(async () => finish())
+    await mount(); await submit('tool stream')
+    const id = mock.api.tools.start.mock.calls[0][0].id
+    await settle(() => notify({ id, content: '## Streaming', activity: { call, state: 'running' } }))
+    expect(container.querySelector('.messages h2')!.textContent).toBe('Streaming')
+    expect(container.querySelector('.tool-activity')!.textContent).toContain('Executing')
+    expect([...container.querySelectorAll('button')].find((b) => b.textContent === 'New Chat')!.disabled).toBe(true)
+    mock.app.settings = { tools: { enabled: true }, renderMarkdown: false }
+    await mount()
+    expect(container.querySelector('.messages h2')).toBeNull()
+    expect(mock.api.tools.cancel).not.toHaveBeenCalled()
+    await click('■ Stop')
+    expect(mock.api.tools.cancel).toHaveBeenCalledWith(id)
+    const saved = [...stored.values()][0]
+    expect(saved.messages[1].toolMessages![1].content).toContain('Stopped')
+    await click('New Chat'); await click('tool streamModel A')
+    expect(container.querySelector('.tool-activity')!.textContent).toContain('Stopped')
+    expect(composer().disabled).toBe(false)
+  })
+  it('shows a save error without launching or losing a tool-assisted user message', async () => {
+    mock.app.settings = { tools: { enabled: true } }
+    mock.api.conversations.save.mockRejectedValue(new Error('disk full'))
+    await mount(); await submit('retain tool question')
+    expect(mock.api.tools.start).not.toHaveBeenCalled()
+    expect(mock.app.toast).toHaveBeenCalled()
+    expect(container.querySelector('.messages')!.textContent).toContain('retain tool question')
   })
   it('keeps switching locked while streaming and saves stopped text and reasoning to the original chat', async () => {
     await mount()

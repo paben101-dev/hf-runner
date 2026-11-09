@@ -10,11 +10,14 @@ import base64
 import io
 import json
 import os
+import select
+import socket
 import sys
 import threading
 import time
 import traceback
 import uuid
+from tool_protocol import supports_tools, template_message, parse_message, ParsedStream
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 # 表示言語 (アプリが HFRUNNER_LANG=ja|en で渡す)。利用者に見えるメッセージは L("日本語", "English") で両方書く
@@ -231,14 +234,14 @@ def normalize_messages(messages):
                 elif part.get("type") in ("text", "input_text") or "text" in part:
                     texts.append(part.get("text", ""))
             content = "".join(texts)
-        if role in ("user", "assistant", "system") and content is not None:
-            out.append({"role": role, "content": str(content), "images": images})
+        if role in ("user", "assistant", "system", "tool") and (content is not None or m.get("tool_calls")):
+            out.append({"role": role, "content": str(content or ""), "images": images, **({"reasoning_content": m["reasoning_content"]} if m.get("reasoning_content") else {}), **({"tool_calls": m["tool_calls"]} if m.get("tool_calls") else {}), **({"tool_call_id": m["tool_call_id"]} if m.get("tool_call_id") else {})})
     return out
 
 
 def encode_text(tok, msgs, tmpl):
     """テキストのみ: チャットテンプレートでトークン化 (tmpl はテンプレートに渡す変数。enable_thinking など)"""
-    plain = [{"role": m["role"], "content": m["content"]} for m in msgs]
+    plain = [template_message(m) for m in msgs]
     if getattr(tok, "chat_template", None):
         out = tok.apply_chat_template(plain, add_generation_prompt=True, return_tensors="pt", return_dict=True, **tmpl)
         ids = out["input_ids"] if hasattr(out, "keys") else out
@@ -346,7 +349,7 @@ def prompt_ends_in_thinking(ids, start_id, end_id):
 def run_generate(inputs, max_new, extra_criteria, params, stop_event, on_piece):
     """generate を別スレッドで回し、出力を on_piece に流す。生成した列 (プロンプト込み) と生成トークン数を返す"""
     model, tok = state["model"], state["tok"]
-    streamer = TextIteratorStreamer(tok, skip_prompt=True, skip_special_tokens=True)
+    streamer = TextIteratorStreamer(tok, skip_prompt=True, skip_special_tokens=not bool(params.get("tools")))
     crit = StopOnEvent(stop_event)
     temp = params["temperature"]
     gen_kwargs = dict(
@@ -373,9 +376,14 @@ def run_generate(inputs, max_new, extra_criteria, params, stop_event, on_piece):
 
     thread = threading.Thread(target=run, daemon=True)
     thread.start()
-    for piece in streamer:
-        if piece:
-            on_piece(piece)
+    try:
+        for piece in streamer:
+            if piece:
+                on_piece(piece)
+    except BaseException:
+        stop_event.set()
+        thread.join()
+        raise
     thread.join()
     if "error" in result:
         raise result["error"]
@@ -389,7 +397,17 @@ def generate(msgs, params, stop_event, on_piece):
     if has_images and not state["vision"]:
         raise ValueError(L("このモデルは画像入力に対応していません", "This model does not support image input"))
     tmpl = params["template_kwargs"]
-    inputs = build_vision_inputs(msgs, params["max_tokens"], tmpl) if state["vision"] else build_text_inputs(msgs, params["max_tokens"], tmpl)
+    if params.get("tools") or any(m.get("tool_calls") or m["role"] == "tool" for m in msgs):
+        if state["vision"]:
+            raise ValueError("Structured tools with vision inputs are not supported by this backend")
+        ids = encode_text(tok, msgs, tmpl)
+        if ids.shape[1] > input_budget(params["max_tokens"]):
+            raise ValueError("Tool conversation exceeds context budget; clear chat or increase context size")
+        inputs = {"input_ids": ids, "attention_mask": torch.ones_like(ids)}
+    else:
+        inputs = build_vision_inputs(msgs, params["max_tokens"], tmpl) if state["vision"] else build_text_inputs(msgs, params["max_tokens"], tmpl)
+    if params.get("tools"):
+        params["response_prefix"] = tok.decode(inputs["input_ids"][0], skip_special_tokens=False)
     inputs = {k: (v.to(model.device) if hasattr(v, "to") else v) for k, v in inputs.items()}
     prompt_n = int(inputs["input_ids"].shape[1])
     # 出力はコンテキストの残りまで (最大出力トークンがそれより大きければ、そこで止まる = "length")
@@ -471,6 +489,7 @@ class Handler(BaseHTTPRequestHandler):
                     "n_params": state["n_params"],
                     "max_context": args.max_context,
                     "vision": state["vision"],
+                    "tool_calling": supports_tools(state["tok"], state["vision"]),
                     "modalities": {"vision": state["vision"], "audio": False},
                     "build_info": f"transformers {transformers.__version__} / torch {torch.__version__}",
                 },
@@ -499,12 +518,20 @@ class Handler(BaseHTTPRequestHandler):
         tmpl = req.get("chat_template_kwargs") if isinstance(req.get("chat_template_kwargs"), dict) else {}
         if isinstance(req.get("reasoning_effort"), str) and "reasoning_effort" not in tmpl:
             tmpl = {**tmpl, "reasoning_effort": req["reasoning_effort"]}
+        tools = req.get("tools")
+        if tools:
+            if not isinstance(tools, list) or len(tools) > 16 or any(not isinstance(t, dict) or t.get("type") != "function" or not isinstance(t.get("function"), dict) for t in tools):
+                return self._json(400, {"error": {"message": "Invalid tools definitions"}})
+            if not supports_tools(state["tok"], state["vision"]):
+                return self._json(400, {"error": {"message": "Tool calling requires a tokenizer-owned response_template and parse_response API; vision tools are not supported"}})
+            tmpl = {**tmpl, "tools": tools}
         budget = req.get("thinking_budget_tokens")
         params = {
             "temperature": float(req.get("temperature", 0.7) or 0),
             "top_p": float(req.get("top_p", 0.95) or 0.95),
             "max_tokens": int(req.get("max_tokens") or req.get("max_completion_tokens") or 1024),
             "template_kwargs": tmpl,
+            "tools": tools,
             # 思考の上限トークン数 (llama.cpp と同じ名前)。-1 / 未指定は無制限
             "thinking_budget": int(budget) if isinstance(budget, (int, float)) and budget >= 0 else None,
         }
@@ -525,6 +552,14 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError as e:
             return self._json(400, {"error": {"message": str(e)}})
         text = "".join(parts)
+        message = {"role": "assistant", "content": text}
+        if params.get("tools"):
+            try:
+                message = parse_message(state["tok"], text, params["response_prefix"], params["tools"])
+                if message.get("tool_calls") and stats["finish"] != "length":
+                    stats["finish"] = "tool_calls"
+            except Exception as e:
+                return self._json(400, {"error": {"message": str(e)}})
         self._json(
             200,
             {
@@ -532,7 +567,7 @@ class Handler(BaseHTTPRequestHandler):
                 "object": "chat.completion",
                 "created": int(time.time()),
                 "model": ALIAS,
-                "choices": [{"index": 0, "message": {"role": "assistant", "content": text}, "finish_reason": stats["finish"]}],
+                "choices": [{"index": 0, "message": message, "finish_reason": stats["finish"]}],
                 "usage": {"prompt_tokens": stats["prompt_n"], "completion_tokens": stats["predicted_n"], "total_tokens": stats["prompt_n"] + stats["predicted_n"]},
             },
         )
@@ -547,6 +582,19 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Connection", "close")
         self.end_headers()
         stop_event = threading.Event()
+        watch_done = threading.Event()
+        def watch_disconnect():
+            # A protocol parser may withhold partial output; detect Stop even without text writes.
+            while not watch_done.wait(0.2):
+                try:
+                    readable, _, _ = select.select([self.connection], [], [], 0)
+                    if readable and not self.connection.recv(1, socket.MSG_PEEK):
+                        stop_event.set()
+                        return
+                except (OSError, ValueError):
+                    stop_event.set()
+                    return
+        threading.Thread(target=watch_disconnect, daemon=True).start()
         splitter = ThinkSplitter()
 
         def send(obj):
@@ -565,8 +613,22 @@ class Handler(BaseHTTPRequestHandler):
 
         send(chunk({"role": "assistant", "content": ""}))
         try:
-            stats = generate(msgs, params, stop_event, lambda piece: emit(splitter.feed(piece)))
-            emit(splitter.flush())
+            if params.get("tools"):
+                parsed = None
+                def on_piece(piece):
+                    nonlocal parsed
+                    if parsed is None:
+                        parsed = ParsedStream(state["tok"], params["response_prefix"], params["tools"], lambda delta: send(chunk(delta)))
+                    parsed.feed(piece)
+                stats = generate(msgs, params, stop_event, on_piece)
+                if parsed is None:
+                    parsed = ParsedStream(state["tok"], params["response_prefix"], params["tools"], lambda delta: send(chunk(delta)))
+                message = parsed.finish()
+                if message.get("tool_calls") and stats["finish"] != "length":
+                    stats["finish"] = "tool_calls"
+            else:
+                stats = generate(msgs, params, stop_event, lambda piece: emit(splitter.feed(piece)))
+                emit(splitter.flush())
             send(chunk({}, stats["finish"]))
             n, el = stats["predicted_n"], stats["elapsed"]
             send(
@@ -588,6 +650,8 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:  # noqa: BLE001
             traceback.print_exc()
             send({"error": {"message": f"{type(e).__name__}: {e}"}})
+        finally:
+            watch_done.set()
 
 
 def main():

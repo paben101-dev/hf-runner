@@ -1,3 +1,4 @@
+import { storedToolMessages } from '@shared/tool-history'
 import fs from 'node:fs'
 import path from 'node:path'
 import { createHash, randomUUID } from 'node:crypto'
@@ -49,6 +50,7 @@ export class ConversationStore {
       if (!m || !['user', 'assistant'].includes(m.role) || typeof m.content !== 'string') throw new Error('Invalid message')
       return {
         role: m.role, content: m.content,
+        ...(m.role === 'assistant' && m.toolMessages !== undefined ? { toolMessages: storedToolMessages(m.toolMessages) } : {}),
         images: m.images?.map((s) => image(s)).filter(Boolean),
         reasoning: typeof m.reasoning === 'string' ? m.reasoning : undefined,
         stats: typeof m.stats === 'string' ? m.stats : undefined,

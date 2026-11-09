@@ -64,3 +64,27 @@ The integration-specific regression creates a real disk-backed conversation with
 The cloud machine cannot validate native Windows menu/dialog focus or installer execution; the new integrated Windows artifacts require manual testing. DOM tests verify renderer focus/state transitions, not OS-level window-manager behavior. GitHub API access is denied here, so remote Actions status cannot be confirmed.
 
 History still uses synchronous main-process filesystem operations and parses existing records when listing; very large archives/images can pause the UI. No unrelated index/database refactor was introduced. Atomic rename protects against partial records but is not a guarantee of complete durability under sudden hardware/power failure. Unfinished streaming text can be lost on abrupt termination; previously saved messages remain. Unsaved input drafts, per-conversation parameters, and full-text search remain outside scope.
+
+## Tool-calling and web-search integration update
+
+The current integrated build also includes reviewed tool-calling and keyless web search. The calculator demo was removed on `feat/tool-calling` (`e199a0c`); `feat/web-search` merges that removal (`15b3822`). Arithmetic execution remains only in a test fixture under `tests/fixtures`, outside the production build. The default tool selection is empty, old calculator preferences are discarded, and the integrated registry exposes only web_search. No feature branches were squashed or rewritten, and main remains unchanged.
+
+The merge combines the reviewed web-search branch (which contains the tool-calling branch) with the previous integrated history/Markdown build. In addition to resolving textual conflicts, it adds integration-only protocol persistence:
+
+- History uses the existing operation lock and model association for both ordinary and tool-assisted messages; the standalone tool-calling branch's separate context ref is not duplicated in integrated chat state.
+- A user message is saved before starting tool-assisted inference. Completed/stopped responses are saved afterward through the same pending-save retry mechanism as normal chat. Stop during the initial save prevents a later tool/inference start.
+- An assistant bubble can represent multiple assistant/tool protocol messages. Its `toolMessages` field preserves the raw call/result pairs for that turn; subsequent requests expand these rather than feeding the flattened display text back to the model. The loader validates roles, identities and pairing, rejects privileged roles, and preserves reasoning and raw Markdown strings. Existing records without this optional field remain compatible.
+- Restored tool activities are derived from the saved protocol, avoiding duplicate stored result bodies. Disabling Markdown changes only display, and disabling tools does not strip previous tool-result context or replay old calls.
+
+Conflict decisions:
+
+| Area | Resolution |
+| --- | --- |
+| ChatPage and state | Keep history's guarded send/switch/save flow; integrate main-process tool IPC within it; render both normal/tool-assisted responses with the shared Markdown component. Preserve attachment invalidation, rename/delete, resizable sidebar, and native context actions. |
+| Settings/shared types | Retain renderMarkdown and tools independently, with both default/load/update validators. Add optional tool-turn metadata to shared conversation messages. |
+| IPC/preload | Retain both conversation CRUD/native dialogs and scoped desktop tool sessions. No LAN execution privileges or inference/download changes. |
+| Dependencies/lockfile | Preserve Markdown, Ajv, htmlparser2 and happy-dom. Reconcile the lockfile with npm and verify via clean npm ci rather than selecting one branch's conflicting transitive dependency tree. |
+| CSS/docs | Keep history layout, Markdown typography and tool activity styles; retain all feature sections and update search privacy wording in both languages. |
+| Windows workflow | One integrated workflow includes Python setup for protocol tests, Node 24, typecheck/tests, and installer/portable artifacts. Pushes to dev/integrated trigger a new build with dev-integrated and the commit SHA in artifact names. |
+
+Validation: clean `npm ci`, all TypeScript projects, the production build, and workflow YAML validation pass. The full suite reports 206 passed, 3 skipped and one existing external GGUF test failure (Hugging Face request blocked by proxy HTTP 403). New regressions cover saved tool protocol after disk reload/rename, matching result IDs, rejection of privileged/unpaired metadata, restored activities, images, raw Markdown, continuing with tools disabled, live formatting changes during streamed tool activity, cancellation, save failure, and Stop while a user message is still being saved. Real Windows interactions and external search remain subject to manual testing of the integrated artifact; individual features were previously tested by the user.

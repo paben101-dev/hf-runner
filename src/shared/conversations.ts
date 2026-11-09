@@ -1,6 +1,10 @@
 export interface ChatMessage {
   role: 'user' | 'assistant'
   content: string
+  /** Raw protocol messages for this assistant turn, including paired tool results. */
+  toolMessages?: import('./tools').ToolMessage[]
+  /** Ephemeral streaming activity; restored activity is derived from toolMessages. */
+  activities?: import('./tools').ToolActivity[]
   /** 添付画像 (data URL) */
   images?: string[]
   reasoning?: string

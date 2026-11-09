@@ -1,3 +1,4 @@
+import { toolPreferences } from '@shared/tools'
 import { app } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -17,6 +18,7 @@ const KEYS: Array<keyof Settings> = [
   'threads',
   'serverPort',
   'renderMarkdown',
+  'tools',
   'systemPrompt',
   'temperature',
   'maxTokens',
@@ -62,6 +64,7 @@ export class SettingsStore {
       threads: 0,
       serverPort: 18080,
       renderMarkdown: true,
+      tools: toolPreferences(undefined),
       systemPrompt: '',
       temperature: 0.7,
       maxTokens: 2048,
@@ -96,6 +99,7 @@ export class SettingsStore {
       if (this.portableDir && typeof out.modelsDir === 'string' && !path.isAbsolute(out.modelsDir)) {
         out.modelsDir = path.resolve(this.portableDir, out.modelsDir)
       }
+      out.tools = toolPreferences(out.tools)
       return out as Partial<Settings>
     } catch {
       return {}
@@ -119,6 +123,7 @@ export class SettingsStore {
     const clean: Record<string, unknown> = {}
     for (const k of KEYS) if (k in patch && patch[k] !== undefined) clean[k] = patch[k]
     if (typeof clean.renderMarkdown !== 'boolean') delete clean.renderMarkdown
+    if ('tools' in clean) clean.tools = toolPreferences(clean.tools)
     this.data = { ...this.data, ...(clean as Partial<Settings>) }
     fs.mkdirSync(path.dirname(this.file), { recursive: true })
     fs.writeFileSync(this.file, JSON.stringify(this.serialize(), null, 2))

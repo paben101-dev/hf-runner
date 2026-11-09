@@ -1,17 +1,11 @@
 name: Windows test build
-run-name: Windows test build · ${{ github.ref_name }} · ${{ github.sha }}
-
+run-name: Integrated test build · ${{ github.ref_name }} · ${{ github.sha }}
 on:
   workflow_dispatch:
   push:
-    branches:
-      - feat/conversation-history
-      - feat/markdown-rendering
-      - dev/integrated
-
+    branches: [dev/integrated, feat/conversation-history, feat/markdown-rendering, feat/tool-calling, feat/web-search]
 permissions:
   contents: read
-
 jobs:
   build:
     runs-on: windows-latest
@@ -19,70 +13,43 @@ jobs:
     env:
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'
     steps:
-      - name: Check out source
-        uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: '24'
           cache: npm
-
-      - name: Install locked dependencies
-        run: npm ci
-
-      - name: Install Electron binary if needed
-        run: node node_modules/electron/install.js
-
-      - name: Type check
-        run: npm run typecheck
-
-      - name: Run tests
-        run: npm test
-
-      - name: Build Windows installer and portable package
-        run: npm run dist:win
-
-      - name: Name artifacts
-        id: artifacts
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: npm ci
+      - run: node node_modules/electron/install.js
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run dist:win
+      - name: Name packages
+        id: packages
         shell: pwsh
         env:
-          REPOSITORY_NAME: ${{ github.event.repository.name }}
+          REPO_NAME: ${{ github.event.repository.name }}
           BRANCH_NAME: ${{ github.ref_name }}
         run: |
-          $repo = $env:REPOSITORY_NAME -replace '[^A-Za-z0-9._-]', '-'
+          $repo = $env:REPO_NAME -replace '[^A-Za-z0-9._-]', '-'
           $branch = $env:BRANCH_NAME -replace '[^A-Za-z0-9._-]', '-'
-          $sha = $env:GITHUB_SHA.Substring(0, 7)
           "prefix=$repo-$branch" >> $env:GITHUB_OUTPUT
-          "sha=$sha" >> $env:GITHUB_OUTPUT
-
+          "sha=$($env:GITHUB_SHA.Substring(0, 7))" >> $env:GITHUB_OUTPUT
       - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ steps.artifacts.outputs.prefix }}-installer-${{ steps.artifacts.outputs.sha }}
+          name: ${{ steps.packages.outputs.prefix }}-installer-${{ steps.packages.outputs.sha }}
           path: dist/HF-Runner-*-win-x64.exe
           if-no-files-found: error
           retention-days: 30
           compression-level: 0
-
       - name: Upload portable package
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ steps.artifacts.outputs.prefix }}-portable-${{ steps.artifacts.outputs.sha }}
+          name: ${{ steps.packages.outputs.prefix }}-portable-${{ steps.packages.outputs.sha }}
           path: dist/HF-Runner-*-win-x64.zip
           if-no-files-found: error
           retention-days: 30
           compression-level: 0
-
-      - name: Write download instructions
-        shell: pwsh
-        run: |
-          @"
-          ## Windows test packages
-          Built commit: $env:GITHUB_SHA
-
-          Download the installer or portable artifact from this run's **Artifacts** section.
-          Extract the artifact ZIP first. For the portable package, also extract the inner ZIP
-          to a short path and launch HF Runner.exe. Artifacts are retained for 30 days.
-          These packages are unsigned. No GitHub release is published by this workflow.
-          "@ >> $env:GITHUB_STEP_SUMMARY

@@ -20,7 +20,9 @@
   "dependencies": {
     "extract-zip": "^2.0.1",
     "react-markdown": "^10.1.0",
-    "remark-gfm": "^4.0.1"
+    "remark-gfm": "^4.0.1",
+    "ajv": "^8.20.0",
+    "htmlparser2": "^12.0.0"
   },
   "devDependencies": {
     "@types/node": "^26.6.3",

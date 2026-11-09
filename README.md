@@ -4,7 +4,7 @@ English | [日本語](README.ja.md)
 
 **Find models on Hugging Face, download them, and run them on your own PC** — a desktop app for Windows.
 
-No command line or Python knowledge needed. When you search for a model, HF Runner shows in color whether it will run with this PC's memory, and one button takes you from download to chat or image generation. Everything runs locally; what you type is never sent anywhere.
+No command line or Python knowledge needed. When you search for a model, HF Runner shows in color whether it will run with this PC's memory, and one button takes you from download to chat or image generation. Model inference runs locally. Optional web search sends search queries to DuckDuckGo/Bing when enabled.
 
 - 💬 **Chat** — talk to text-generation models such as Qwen, Gemma and Llama
 - 🖼️ **Ask about images** — paste an image into a vision-language model and ask about it
@@ -98,7 +98,7 @@ Chat's collapsible **History** sidebar lists saved conversations with the most r
 
 User messages and completed, stopped, or failed responses save automatically. Stop a running response before switching conversations, renaming, or deleting. History preserves image attachments and assistant reasoning. Reopening a conversation does not start or download its model: launch the same model from the Library to continue, or start a new chat for another model.
 
-History stays local under `conversations/` in the app's existing user-data directory: `%APPDATA%\HF Runner\conversations\` for the Windows installer, or `<folder>\data\conversations\` for the portable zip. Each conversation has an atomic JSON record and separate, deduplicated image files. History is not encrypted or synchronized; protect your local data directory. Messages are sent only to the running local inference server when you press Send. Abrupt termination during generation can lose the unfinished response; previously saved messages remain. Corrupt records are ignored without deleting the files. Unsaved input drafts and chat parameter settings are not stored per conversation.
+History stays local under `conversations/` in the app's existing user-data directory: `%APPDATA%\HF Runner\conversations\` for the Windows installer, or `<folder>\data\conversations\` for the portable zip. Each conversation has an atomic JSON record and separate, deduplicated image files. History is not encrypted or synchronized; protect your local data directory. Chat context goes to the running local inference server; optional web search also sends the generated search query to DuckDuckGo/Bing. Abrupt termination during generation can lose the unfinished response; previously saved messages remain. Corrupt records are ignored without deleting the files. Unsaved input drafts and chat parameter settings are not stored per conversation.
 
 ### Markdown in chat
 
@@ -107,6 +107,18 @@ Chat messages render Markdown by default: headings, bold/italic/strikethrough, n
 Code blocks preserve indentation, scroll horizontally, show a language label when provided, and include a **Copy** button. Syntax highlighting is not included. In **Settings → Chat**, turn off **Render Markdown in chat** to show the original text literally. The setting is saved, applies immediately, and only changes presentation; messages and inference requests keep their raw text.
 
 HTML is disabled. Markdown images appear as descriptive text and never load resources; image attachments continue to work as before. Only explicit HTTP/HTTPS links are clickable and open in your external browser. Local files, app protocols, relative links, and other URL schemes are disabled. Math formulas, embedded HTML, and syntax highlighting are not supported.
+
+### Optional tool calling
+
+Tool calling is **disabled by default**. With a compatible model/template, enable **Use tools** in Chat and manage individual tools, maximum rounds and execution timeouts in **Settings → Tool calling**. Enable a registered tool in Settings to use it. Calls, arguments and results are collapsible, and Stop cancels generation and cooperative tool execution.
+
+Only statically registered tools run in the Electron main process after JSON Schema validation. The calculator demo has been removed; web search is the registered tool on this branch. LAN clients receive no execution privileges. Web search is an additional opt-in tool on this branch; file-access tools, MCP and shell execution are not included. Unsupported models are reported explicitly. See [tool-calling architecture and backend requirements](docs/TOOL_CALLING.md) for registration examples, limits, tests and future integration guidance.
+
+### Optional keyless web search
+
+Enable **Use tools** and select **web_search** in **Settings → Tool calling**. Search is disabled by default and requires a tool-capable model/template. Ask “Search the web for the latest Python release and cite your sources.” No account or API key is needed: DuckDuckGo is the primary source and Bing is the fallback.
+
+Only the generated search query is sent to those services; the query can contain information from your chat, so keep sensitive information out of search requests. Results contain source URLs, titles and snippets. The tool does not open result pages, execute scripts, or load images. Search data remains untrusted tool output. Requests are spaced and rate-limited, cached in memory, and paused when providers refuse them. HTML changes or provider blocking can make search unavailable; no CAPTCHA bypass is attempted. See [web search design and limits](docs/WEB_SEARCH.md).
 
 ### 4. Image generation
 
@@ -213,6 +225,7 @@ The distribution includes the following software; their license texts are bundle
 | [React](https://react.dev/) (react, react-dom, scheduler) | MIT |
 | [extract-zip](https://github.com/max-mapper/extract-zip) and its dependencies (yauzl, debug, …) | BSD-2-Clause / MIT / ISC |
 | [react-markdown](https://github.com/remarkjs/react-markdown), [remark-gfm](https://github.com/remarkjs/remark-gfm) | MIT |
+| [htmlparser2](https://github.com/fb55/htmlparser2) | MIT |
 
 The following are downloaded by the user's PC from their official sources at run time (not included in the app).
 
