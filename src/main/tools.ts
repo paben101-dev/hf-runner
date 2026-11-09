@@ -1,4 +1,6 @@
 import Ajv from 'ajv'
+import { createWebSearchTool } from './web-search'
+import { createKeylessSearch } from './keyless-search'
 import type { ToolCall, ToolDefinition, ToolResult } from '@shared/tools'
 
 export interface RegisteredTool {
@@ -58,5 +60,6 @@ export function createToolRegistry(): ToolRegistry {
       return { value }
     },
   })
+  registry.register(createWebSearchTool(createKeylessSearch()))
   return registry
 }

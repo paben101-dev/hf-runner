@@ -1,9 +1,9 @@
 name: Windows test build
-run-name: Tool calling test build · ${{ github.ref_name }} · ${{ github.sha }}
+run-name: Web search test build · ${{ github.ref_name }} · ${{ github.sha }}
 on:
   workflow_dispatch:
   push:
-    branches: [feat/tool-calling]
+    branches: [feat/web-search]
 permissions:
   contents: read
 jobs:

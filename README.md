@@ -4,7 +4,7 @@ English | [日本語](README.ja.md)
 
 **Find models on Hugging Face, download them, and run them on your own PC** — a desktop app for Windows.
 
-No command line or Python knowledge needed. When you search for a model, HF Runner shows in color whether it will run with this PC's memory, and one button takes you from download to chat or image generation. Everything runs locally; what you type is never sent anywhere.
+No command line or Python knowledge needed. When you search for a model, HF Runner shows in color whether it will run with this PC's memory, and one button takes you from download to chat or image generation. Model inference runs locally. Optional web search sends search queries to DuckDuckGo/Bing when enabled.
 
 - 💬 **Chat** — talk to text-generation models such as Qwen, Gemma and Llama
 - 🖼️ **Ask about images** — paste an image into a vision-language model and ask about it
@@ -96,7 +96,13 @@ Click "▶ Launch" in the Library to load the model and switch to Chat. A progre
 
 Tool calling is **disabled by default**. With a compatible model/template, enable **Use tools** in Chat and manage individual tools, maximum rounds and execution timeouts in **Settings → Tool calling**. Try “Use the calculator to multiply 123 by 456.” Calls, arguments and results are collapsible, and Stop cancels generation and cooperative tool execution.
 
-Only statically registered tools run in the Electron main process after JSON Schema validation. The calculator handles basic arithmetic without evaluating code; it can be disabled. LAN clients receive no execution privileges. No web search, file-access tools, MCP, shell execution, history or Markdown features are included in this branch. Unsupported models are reported explicitly. See [tool-calling architecture and backend requirements](docs/TOOL_CALLING.md) for registration examples, limits, tests and future integration guidance.
+Only statically registered tools run in the Electron main process after JSON Schema validation. The calculator handles basic arithmetic without evaluating code; it can be disabled. LAN clients receive no execution privileges. Web search is an additional opt-in tool on this branch; file-access tools, MCP, shell execution, history and Markdown are not included. Unsupported models are reported explicitly. See [tool-calling architecture and backend requirements](docs/TOOL_CALLING.md) for registration examples, limits, tests and future integration guidance.
+
+### Optional keyless web search
+
+Enable **Use tools** and select **web_search** in **Settings → Tool calling**. Search is disabled by default and requires a tool-capable model/template. Ask “Search the web for the latest Python release and cite your sources.” No account or API key is needed: DuckDuckGo is the primary source and Bing is the fallback.
+
+Only the generated search query is sent to those services; the query can contain information from your chat, so keep sensitive information out of search requests. Results contain source URLs, titles and snippets. The tool does not open result pages, execute scripts, or load images. Search data remains untrusted tool output. Requests are spaced and rate-limited, cached in memory, and paused when providers refuse them. HTML changes or provider blocking can make search unavailable; no CAPTCHA bypass is attempted. See [web search design and limits](docs/WEB_SEARCH.md).
 
 ### 4. Image generation
 
@@ -202,6 +208,7 @@ The distribution includes the following software; their license texts are bundle
 | [Electron](https://www.electronjs.org/) / Chromium | MIT / various (`LICENSES.chromium.html`) |
 | [React](https://react.dev/) (react, react-dom, scheduler) | MIT |
 | [extract-zip](https://github.com/max-mapper/extract-zip) and its dependencies (yauzl, debug, …) | BSD-2-Clause / MIT / ISC |
+| [htmlparser2](https://github.com/fb55/htmlparser2) | MIT |
 
 The following are downloaded by the user's PC from their official sources at run time (not included in the app).
 

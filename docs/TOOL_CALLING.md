@@ -60,14 +60,14 @@ Tests cover registry/schema behavior, unknown/disabled tools, handler failures, 
 
 Real model execution, CUDA/Vulkan behavior and native Windows interactions are not verified by these protocol tests. Manually test a compatible GGUF and tokenizer-parser-enabled safetensors model before claiming broad model support. No model weights were downloaded for this implementation.
 
-## Next step: web search
+## Web search extension
 
-Register a separate, disabled-by-default tool with a bounded query schema and result count. Put provider credentials and allowlisted network access in the main-process integration; respect AbortSignal, timeouts and output-size limits. Treat remote snippets as untrusted tool data, retain source URLs, and never promote them into system instructions. Review any permissions separately. The current feature adds no web-search calls, credentials, file access, or MCP.
+Register a separate, disabled-by-default tool with a bounded query schema and result count. Put provider credentials and allowlisted network access in the main-process integration; respect AbortSignal, timeouts and output-size limits. Treat remote snippets as untrusted tool data, retain source URLs, and never promote them into system instructions. Review any permissions separately. On `feat/web-search`, the separate [keyless search extension](WEB_SEARCH.md) registers this tool without changing the inference loop. The underlying `feat/tool-calling` branch remains independent.
 
 ## 日本語
 
 ツール呼び出しは標準で無効です。「チャット → ツールを使用」または「設定 → ツール呼び出し」で有効にし、ツールごとのチェックボックスとラウンド数・制限時間を設定します。電卓には加減乗除を指定でき、例えば「calculator を使って 123 × 456 を計算して」と依頼してください。呼び出しの引数と結果は折りたたみ表示され、「停止」で生成と協調的な処理を中断できます。
 
-実行は Electron メインプロセス内の登録済みハンドラーのみです。JSON Schema で引数を検証し、ツールの結果を権限の高い指示として扱いません。LAN クライアントに実行権限は付与せず、シェル実行、汎用ファイル操作、検索、MCP は含みません。将来のツールは `createToolRegistry()` でスキーマと非同期ハンドラーを登録し、AbortSignal とサイズ制限を守ってください。
+実行は Electron メインプロセス内の登録済みハンドラーのみです。JSON Schema で引数を検証し、ツールの結果を権限の高い指示として扱いません。LAN クライアントに実行権限は付与せず、シェル実行、汎用ファイル操作、MCP は含みません。このブランチの検索拡張は [WEB_SEARCH.md](WEB_SEARCH.md) を参照してください。将来のツールは `createToolRegistry()` でスキーマと非同期ハンドラーを登録し、AbortSignal とサイズ制限を守ってください。
 
 llama.cpp は Jinja、対応モデル・テンプレート、明示的な `/props` の対応情報が必要です。Transformers はテキストモデルで、tokenizer の `response_template` と `parse_response` API が必要です。対応情報がないモデルや視覚モデルのツール呼び出しは無効です。通常の文章からツール呼び出しを推測しません。バックエンドによってはパーサーが未完の出力を保持するため、表示が遅れる場合があります。モデルを使った実動作は別途確認してください。
